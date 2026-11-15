@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="RadarOfertas.Benchmarks/RadarOfertas.Benchmarks.csproj" />
+  <Project Path="RadarOfertas.Cli/RadarOfertas.Cli.csproj" />
+  <Project Path="RadarOfertas.Core/RadarOfertas.Core.csproj" />
+  <Project Path="RadarOfertas.Data/RadarOfertas.Data.csproj" />
+  <Project Path="RadarOfertas.Pipeline/RadarOfertas.Pipeline.csproj" />
+  <Project Path="RadarOfertas.Scrapers/RadarOfertas.Scrapers.csproj" />
+</Solution>

@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\RadarOfertas.Core\RadarOfertas.Core.csproj" />
+    <ProjectReference Include="..\RadarOfertas.Data\RadarOfertas.Data.csproj" />
+    <ProjectReference Include="..\RadarOfertas.Scrapers\RadarOfertas.Scrapers.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>
