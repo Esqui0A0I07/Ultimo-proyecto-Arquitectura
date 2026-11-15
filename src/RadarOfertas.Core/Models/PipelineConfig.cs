@@ -23,5 +23,5 @@ public sealed class PipelineConfig
     public int IoWorkers { get; init; } = 32;
     public int CpuWorkers { get; init; } = Environment.ProcessorCount;
     public string ReplayCacheDirectory { get; init; } = "../../replay-cache";
-    public string ConnectionString { get; init; } = "Host=localhost;Database=radar_ofertas;Username=postgres;Password=postgres";
+    public string ConnectionString { get; init; } = "Host=ep-shy-lake-bbyw3dvd-pooler.c-15.us-east-1.aws.neon.tech;Database=neondb;Username=neondb_owner;Password=npg_hA9kWgJoBC6N;SSL Mode=Require;";
 }

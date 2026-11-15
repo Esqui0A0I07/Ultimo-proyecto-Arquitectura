@@ -1,0 +1,66 @@
+name: Daily Scrape & Deploy to GitHub Pages
+
+on:
+  schedule:
+    # Se ejecuta automáticamente cada 24 horas a las 06:00 UTC (00:00 CST)
+    - cron: '0 6 * * *'
+  workflow_dispatch: # Permite ejecutarlo manualmente con 1 clic en la defensa oral
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: 'pages'
+  cancel-in-progress: false
+
+jobs:
+  scrape-build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1. Checkout del repositorio
+        uses: actions/checkout@v4
+
+      - name: 2. Configurar .NET 10.0 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 3. Configurar Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 4. Compilar y ejecutar Pipeline Multinúcleo (Etapas 1 a 5)
+        working-directory: ./src
+        env:
+          RADAR_DB_CONN: ${{ secrets.RADAR_DB_CONN }}
+        run: |
+          dotnet build -c Release
+          dotnet run --project RadarOfertas.Cli -c Release -- --parallel --use-db --publish-web --games 500 --io-workers 32 --cpu-workers 12 --latency 120
+
+      - name: 5. Compilar sitio público en React + Vite
+        working-directory: ./web
+        run: |
+          npm install
+          npm run build
+
+      - name: 6. Configurar GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: 7. Empaquetar artefacto estático (web/dist + JSON actualizados)
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './web/dist'
+
+      - name: 8. Desplegar en URL pública de GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

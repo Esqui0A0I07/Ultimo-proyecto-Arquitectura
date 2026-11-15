@@ -66,9 +66,28 @@
           }
         }
       },
+      "SixLabors.ImageSharp/3.1.5": {
+        "type": "package",
+        "compile": {
+          "lib/net6.0/SixLabors.ImageSharp.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net6.0/SixLabors.ImageSharp.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "build/_._": {}
+        }
+      },
       "RadarOfertas.Core/1.0.0": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
+        "dependencies": {
+          "SixLabors.ImageSharp": "3.1.5"
+        },
         "compile": {
           "bin/placeholder/RadarOfertas.Core.dll": {}
         },
@@ -220,6 +239,22 @@
         "npgsql.10.0.3.nupkg.sha512",
         "npgsql.nuspec",
         "postgresql.png"
+      ]
+    },
+    "SixLabors.ImageSharp/3.1.5": {
+      "sha512": "lNtlq7dSI/QEbYey+A0xn48z5w4XHSffF8222cC4F4YwTXfEImuiBavQcWjr49LThT/pRmtWJRcqA/PlL+eJ6g==",
+      "type": "package",
+      "path": "sixlabors.imagesharp/3.1.5",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "LICENSE",
+        "build/SixLabors.ImageSharp.props",
+        "lib/net6.0/SixLabors.ImageSharp.dll",
+        "lib/net6.0/SixLabors.ImageSharp.xml",
+        "sixlabors.imagesharp.128.png",
+        "sixlabors.imagesharp.3.1.5.nupkg.sha512",
+        "sixlabors.imagesharp.nuspec"
       ]
     },
     "RadarOfertas.Core/1.0.0": {
@@ -593,5 +628,87 @@
         }
       }
     }
-  }
+  },
+  "logs": [
+    {
+      "code": "NU1903",
+      "level": "Warning",
+      "warningLevel": 1,
+      "message": "El paquete \"SixLabors.ImageSharp\" 3.1.5 tiene una vulnerabilidad de gravedad alta conocida, https://github.com/advisories/GHSA-2cmq-823j-5qj8",
+      "libraryId": "SixLabors.ImageSharp",
+      "targetGraphs": [
+        "net10.0"
+      ]
+    },
+    {
+      "code": "NU1902",
+      "level": "Warning",
+      "warningLevel": 1,
+      "message": "El paquete \"SixLabors.ImageSharp\" 3.1.5 tiene una vulnerabilidad de gravedad moderada conocida, https://github.com/advisories/GHSA-gwg2-r3hj-4w44",
+      "libraryId": "SixLabors.ImageSharp",
+      "targetGraphs": [
+        "net10.0"
+      ]
+    },
+    {
+      "code": "NU1903",
+      "level": "Warning",
+      "warningLevel": 1,
+      "message": "El paquete \"SixLabors.ImageSharp\" 3.1.5 tiene una vulnerabilidad de gravedad alta conocida, https://github.com/advisories/GHSA-j3p4-wp97-rph4",
+      "libraryId": "SixLabors.ImageSharp",
+      "targetGraphs": [
+        "net10.0"
+      ]
+    },
+    {
+      "code": "NU1903",
+      "level": "Warning",
+      "warningLevel": 1,
+      "message": "El paquete \"SixLabors.ImageSharp\" 3.1.5 tiene una vulnerabilidad de gravedad alta conocida, https://github.com/advisories/GHSA-j9gm-c75j-xc9q",
+      "libraryId": "SixLabors.ImageSharp",
+      "targetGraphs": [
+        "net10.0"
+      ]
+    },
+    {
+      "code": "NU1903",
+      "level": "Warning",
+      "warningLevel": 1,
+      "message": "El paquete \"SixLabors.ImageSharp\" 3.1.5 tiene una vulnerabilidad de gravedad alta conocida, https://github.com/advisories/GHSA-jjfr-hcj7-qf5w",
+      "libraryId": "SixLabors.ImageSharp",
+      "targetGraphs": [
+        "net10.0"
+      ]
+    },
+    {
+      "code": "NU1902",
+      "level": "Warning",
+      "warningLevel": 1,
+      "message": "El paquete \"SixLabors.ImageSharp\" 3.1.5 tiene una vulnerabilidad de gravedad moderada conocida, https://github.com/advisories/GHSA-rxmq-m78w-7wmc",
+      "libraryId": "SixLabors.ImageSharp",
+      "targetGraphs": [
+        "net10.0"
+      ]
+    },
+    {
+      "code": "NU1903",
+      "level": "Warning",
+      "warningLevel": 1,
+      "message": "El paquete \"SixLabors.ImageSharp\" 3.1.5 tiene una vulnerabilidad de gravedad alta conocida, https://github.com/advisories/GHSA-v76p-62qx-wwq2",
+      "libraryId": "SixLabors.ImageSharp",
+      "targetGraphs": [
+        "net10.0"
+      ]
+    },
+    {
+      "code": "NU1902",
+      "level": "Warning",
+      "warningLevel": 1,
+      "message": "El paquete \"SixLabors.ImageSharp\" 3.1.5 tiene una vulnerabilidad de gravedad moderada conocida, https://github.com/advisories/GHSA-wmxv-xphr-5c9g",
+      "libraryId": "SixLabors.ImageSharp",
+      "targetGraphs": [
+        "net10.0"
+      ]
+    }
+  ]
 }
