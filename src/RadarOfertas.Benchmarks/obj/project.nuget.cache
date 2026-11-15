@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "MiVWJgGSpFw=",
+  "dgSpecHash": "RuonwB+insU=",
   "success": true,
   "projectFilePath": "C:\\Users\\isaac\\Desktop\\Ultimo proyecto Arquitectura\\src\\RadarOfertas.Benchmarks\\RadarOfertas.Benchmarks.csproj",
   "expectedPackageFiles": [
@@ -15,7 +15,7 @@
     {
       "code": "NU1903",
       "level": "Warning",
-      "message": "El paquete \"SixLabors.ImageSharp\" 3.1.5 tiene una vulnerabilidad de gravedad alta conocida, https://github.com/advisories/GHSA-2cmq-823j-5qj8",
+      "message": "Package 'SixLabors.ImageSharp' 3.1.5 has a known high severity vulnerability, https://github.com/advisories/GHSA-2cmq-823j-5qj8",
       "projectPath": "C:\\Users\\isaac\\Desktop\\Ultimo proyecto Arquitectura\\src\\RadarOfertas.Benchmarks\\RadarOfertas.Benchmarks.csproj",
       "warningLevel": 1,
       "filePath": "C:\\Users\\isaac\\Desktop\\Ultimo proyecto Arquitectura\\src\\RadarOfertas.Benchmarks\\RadarOfertas.Benchmarks.csproj",
@@ -27,7 +27,7 @@
     {
       "code": "NU1902",
       "level": "Warning",
-      "message": "El paquete \"SixLabors.ImageSharp\" 3.1.5 tiene una vulnerabilidad de gravedad moderada conocida, https://github.com/advisories/GHSA-gwg2-r3hj-4w44",
+      "message": "Package 'SixLabors.ImageSharp' 3.1.5 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-gwg2-r3hj-4w44",
       "projectPath": "C:\\Users\\isaac\\Desktop\\Ultimo proyecto Arquitectura\\src\\RadarOfertas.Benchmarks\\RadarOfertas.Benchmarks.csproj",
       "warningLevel": 1,
       "filePath": "C:\\Users\\isaac\\Desktop\\Ultimo proyecto Arquitectura\\src\\RadarOfertas.Benchmarks\\RadarOfertas.Benchmarks.csproj",
@@ -39,7 +39,7 @@
     {
       "code": "NU1903",
       "level": "Warning",
-      "message": "El paquete \"SixLabors.ImageSharp\" 3.1.5 tiene una vulnerabilidad de gravedad alta conocida, https://github.com/advisories/GHSA-j3p4-wp97-rph4",
+      "message": "Package 'SixLabors.ImageSharp' 3.1.5 has a known high severity vulnerability, https://github.com/advisories/GHSA-j3p4-wp97-rph4",
       "projectPath": "C:\\Users\\isaac\\Desktop\\Ultimo proyecto Arquitectura\\src\\RadarOfertas.Benchmarks\\RadarOfertas.Benchmarks.csproj",
       "warningLevel": 1,
       "filePath": "C:\\Users\\isaac\\Desktop\\Ultimo proyecto Arquitectura\\src\\RadarOfertas.Benchmarks\\RadarOfertas.Benchmarks.csproj",
@@ -51,7 +51,7 @@
     {
       "code": "NU1903",
       "level": "Warning",
-      "message": "El paquete \"SixLabors.ImageSharp\" 3.1.5 tiene una vulnerabilidad de gravedad alta conocida, https://github.com/advisories/GHSA-j9gm-c75j-xc9q",
+      "message": "Package 'SixLabors.ImageSharp' 3.1.5 has a known high severity vulnerability, https://github.com/advisories/GHSA-j9gm-c75j-xc9q",
       "projectPath": "C:\\Users\\isaac\\Desktop\\Ultimo proyecto Arquitectura\\src\\RadarOfertas.Benchmarks\\RadarOfertas.Benchmarks.csproj",
       "warningLevel": 1,
       "filePath": "C:\\Users\\isaac\\Desktop\\Ultimo proyecto Arquitectura\\src\\RadarOfertas.Benchmarks\\RadarOfertas.Benchmarks.csproj",
@@ -63,7 +63,7 @@
     {
       "code": "NU1903",
       "level": "Warning",
-      "message": "El paquete \"SixLabors.ImageSharp\" 3.1.5 tiene una vulnerabilidad de gravedad alta conocida, https://github.com/advisories/GHSA-jjfr-hcj7-qf5w",
+      "message": "Package 'SixLabors.ImageSharp' 3.1.5 has a known high severity vulnerability, https://github.com/advisories/GHSA-jjfr-hcj7-qf5w",
       "projectPath": "C:\\Users\\isaac\\Desktop\\Ultimo proyecto Arquitectura\\src\\RadarOfertas.Benchmarks\\RadarOfertas.Benchmarks.csproj",
       "warningLevel": 1,
       "filePath": "C:\\Users\\isaac\\Desktop\\Ultimo proyecto Arquitectura\\src\\RadarOfertas.Benchmarks\\RadarOfertas.Benchmarks.csproj",
@@ -75,7 +75,7 @@
     {
       "code": "NU1902",
       "level": "Warning",
-      "message": "El paquete \"SixLabors.ImageSharp\" 3.1.5 tiene una vulnerabilidad de gravedad moderada conocida, https://github.com/advisories/GHSA-rxmq-m78w-7wmc",
+      "message": "Package 'SixLabors.ImageSharp' 3.1.5 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-rxmq-m78w-7wmc",
       "projectPath": "C:\\Users\\isaac\\Desktop\\Ultimo proyecto Arquitectura\\src\\RadarOfertas.Benchmarks\\RadarOfertas.Benchmarks.csproj",
       "warningLevel": 1,
       "filePath": "C:\\Users\\isaac\\Desktop\\Ultimo proyecto Arquitectura\\src\\RadarOfertas.Benchmarks\\RadarOfertas.Benchmarks.csproj",
@@ -87,7 +87,7 @@
     {
       "code": "NU1903",
       "level": "Warning",
-      "message": "El paquete \"SixLabors.ImageSharp\" 3.1.5 tiene una vulnerabilidad de gravedad alta conocida, https://github.com/advisories/GHSA-v76p-62qx-wwq2",
+      "message": "Package 'SixLabors.ImageSharp' 3.1.5 has a known high severity vulnerability, https://github.com/advisories/GHSA-v76p-62qx-wwq2",
       "projectPath": "C:\\Users\\isaac\\Desktop\\Ultimo proyecto Arquitectura\\src\\RadarOfertas.Benchmarks\\RadarOfertas.Benchmarks.csproj",
       "warningLevel": 1,
       "filePath": "C:\\Users\\isaac\\Desktop\\Ultimo proyecto Arquitectura\\src\\RadarOfertas.Benchmarks\\RadarOfertas.Benchmarks.csproj",
@@ -99,7 +99,7 @@
     {
       "code": "NU1902",
       "level": "Warning",
-      "message": "El paquete \"SixLabors.ImageSharp\" 3.1.5 tiene una vulnerabilidad de gravedad moderada conocida, https://github.com/advisories/GHSA-wmxv-xphr-5c9g",
+      "message": "Package 'SixLabors.ImageSharp' 3.1.5 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-wmxv-xphr-5c9g",
       "projectPath": "C:\\Users\\isaac\\Desktop\\Ultimo proyecto Arquitectura\\src\\RadarOfertas.Benchmarks\\RadarOfertas.Benchmarks.csproj",
       "warningLevel": 1,
       "filePath": "C:\\Users\\isaac\\Desktop\\Ultimo proyecto Arquitectura\\src\\RadarOfertas.Benchmarks\\RadarOfertas.Benchmarks.csproj",

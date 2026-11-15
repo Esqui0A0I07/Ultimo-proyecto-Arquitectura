@@ -1,6 +1,7 @@
 using System.Text;
 using Dapper;
 using Npgsql;
+using RadarOfertas.Core.Imaging;
 using RadarOfertas.Core.Matching;
 using RadarOfertas.Core.Models;
 
@@ -354,5 +355,37 @@ public sealed class PostgresGameRepository
         {
             await conn.ExecuteAsync(new CommandDefinition(stageSql, s, cancellationToken: ct));
         }
+    }
+
+    public async Task UpdateCoverAnalysisBatchAsync(
+        IReadOnlyList<CoverAnalysisResult> results,
+        CancellationToken ct = default)
+    {
+        if (results.Count == 0) return;
+
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+
+        var sql = new StringBuilder();
+        var parameters = new DynamicParameters();
+        int idx = 0;
+
+        foreach (var r in results)
+        {
+            string s = $"_{idx++}";
+            sql.AppendLine($"""
+                UPDATE games
+                SET dominant_color_hex = @color{s},
+                    perceptual_hash = @hash{s}
+                WHERE game_id = @id{s};
+                """);
+            parameters.Add($"color{s}", r.DominantColorHex);
+            parameters.Add($"hash{s}", r.PerceptualHashHex);
+            parameters.Add($"id{s}", r.GameId);
+        }
+
+        await conn.ExecuteAsync(new CommandDefinition(sql.ToString(), parameters, transaction: tx, cancellationToken: ct));
+        await tx.CommitAsync(ct);
     }
 }

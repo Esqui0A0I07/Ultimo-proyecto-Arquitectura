@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\RadarOfertas.Core\RadarOfertas.Core.csproj" />
     <ProjectReference Include="..\RadarOfertas.Pipeline\RadarOfertas.Pipeline.csproj" />
+    <ProjectReference Include="..\RadarOfertas.Scrapers\RadarOfertas.Scrapers.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

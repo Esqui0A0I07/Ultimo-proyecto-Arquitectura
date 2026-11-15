@@ -96,6 +96,43 @@ var candidatePool = Enumerable.Range(1, 1000)
         null))
     .ToList();
 
+if (args.Contains("--images"))
+{
+    int reps = GetIntArg(args, "--reps", 5);
+    var sweepRows = BenchmarkRunner.RunCoverImageProcessingSweep(catalog, reps, out var coverResults);
+
+    if (useDb && coverResults.Count > 0)
+    {
+        Console.WriteLine("Guardando colores dominantes y hashes perceptuales (dHash) en PostgreSQL...");
+        await repo.UpdateCoverAnalysisBatchAsync(coverResults);
+        Console.WriteLine($"Actualizados {coverResults.Count} juegos en PostgreSQL.");
+    }
+
+    if (args.Contains("--publish-web"))
+    {
+        string webDataDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../web/public/data"));
+        var exporter = new StaticSiteExporter(config.ConnectionString);
+        await exporter.ExportPublicSiteDataAsync(webDataDir);
+        Console.WriteLine($"[Etapa 5 · Publicar] catalog.json actualizado con colores dominantes reales en: {webDataDir}");
+    }
+    return;
+}
+
+if (args.Contains("--benchmark"))
+{
+    int reps = GetIntArg(args, "--reps", 5);
+    int poolSize = GetIntArg(args, "--candidates", 2500);
+    await BenchmarkRunner.RunFullExperimentalSuiteAsync(catalog, reps, latencyMs, poolSize);
+    return;
+}
+
+if (args.Contains("--predict"))
+{
+    int poolSize = GetIntArg(args, "--candidates", 2500);
+    await BenchmarkRunner.RunInteractiveLivePredictionAsync(catalog, ioWorkers, cpuWorkers, latencyMs, poolSize);
+    return;
+}
+
 Console.WriteLine($"Iniciando Pipeline | Modo: {config.Mode} | Replay: {config.IsReplayMode} ({config.SimulatedLatencyMs}ms) | W_io: {config.IoWorkers} | W_cpu: {config.CpuWorkers} | BD: {useDb}");
 
 var orchestrator = new PipelineOrchestrator(config, httpClient, rateLimiter, useDb ? repo : null);
