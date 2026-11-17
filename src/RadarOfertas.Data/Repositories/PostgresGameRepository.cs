@@ -307,6 +307,12 @@ public sealed class PostgresGameRepository
                     parameters.Add($"sale{s}", offer.IsOnSale);
                     parameters.Add($"low{s}", isHistLow);
                     parameters.Add($"url{s}", offer.Candidate.ProductUrl);
+                    
+                    if (!string.IsNullOrWhiteSpace(offer.Candidate.CoverImageUrl) && offer.Candidate.RegularPriceUsd.HasValue)
+                    {
+                        obsSql.AppendLine($"UPDATE games SET cover_image_url = COALESCE(@cov{s}, cover_image_url), msrp_usd = @reg{s} WHERE game_id = @gid{s};");
+                        parameters.Add($"cov{s}", offer.Candidate.CoverImageUrl);
+                    }
                 }
             }
         }

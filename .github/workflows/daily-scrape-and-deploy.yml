@@ -1,13 +1,11 @@
-name: Daily Scrape & Deploy to GitHub Pages
+name: Daily Scrape, Sweeps & Deploy to GitHub Pages
 
 on:
   schedule:
-    # Se ejecuta automáticamente cada 24 horas a las 06:00 UTC (00:00 CST)
-    - cron: '0 6 * * *'
-  workflow_dispatch: # Permite ejecutarlo manualmente con 1 clic en la defensa oral
+    - cron: '0 6 * * *' # Se ejecuta solo todos los días a las 00:00 hora de Costa Rica
+  workflow_dispatch:     # Botón manual "Run workflow" en GitHub
   push:
-    branches:
-      - main
+    branches: [ main ]
 
 permissions:
   contents: read
@@ -15,39 +13,37 @@ permissions:
   id-token: write
 
 concurrency:
-  group: 'pages'
+  group: "pages"
   cancel-in-progress: false
 
 jobs:
   scrape-build-and-deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-
     steps:
-      - name: 1. Checkout del repositorio
+      - name: 1. Checkout repositorio
         uses: actions/checkout@v4
 
-      - name: 2. Configurar .NET 10.0 SDK
+      - name: 2. Instalar .NET 10.0 SDK
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
 
-      - name: 3. Configurar Node.js 20
+      - name: 3. Instalar Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
-      - name: 4. Compilar y ejecutar Pipeline Multinúcleo (Etapas 1 a 5)
+      - name: 4. Ejecutar Barridos + Extracción Live + Exportar JSON para la Web
         working-directory: ./src
         env:
           RADAR_DB_CONN: ${{ secrets.RADAR_DB_CONN }}
         run: |
           dotnet build -c Release
+          dotnet run --project RadarOfertas.Cli -c Release -- --images --reps 3 --use-db --games 500
+          dotnet run --project RadarOfertas.Cli -c Release -- --benchmark --reps 3 --games 500 --latency 120 --candidates 1500
           dotnet run --project RadarOfertas.Cli -c Release -- --parallel --live --use-db --publish-web --games 520 --io-workers 12 --cpu-workers 12
 
-      - name: 5. Compilar sitio público en React + Vite
+      - name: 5. Compilar sitio estático React + Vite (con BCCR y Colones)
         working-directory: ./web
         run: |
           npm install
@@ -56,11 +52,11 @@ jobs:
       - name: 6. Configurar GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: 7. Empaquetar artefacto estático (web/dist + JSON actualizados)
+      - name: 7. Subir artefacto web/dist
         uses: actions/upload-pages-artifact@v3
         with:
           path: './web/dist'
 
-      - name: 8. Desplegar en URL pública de GitHub Pages
+      - name: 8. Desplegar en GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
