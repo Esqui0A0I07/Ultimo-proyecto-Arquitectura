@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Search, Filter, Activity, Tag, Clock, ExternalLink, Bell, Sun, Moon,
-  ChevronLeft, ChevronRight, AlertTriangle, CheckCircle2, Cpu, Gamepad2
+  ChevronLeft, ChevronRight, AlertTriangle, CheckCircle2, Cpu, Gamepad2, DollarSign
 } from 'lucide-react';
 
 const IO_SWEEP_DATA = [
@@ -70,6 +70,11 @@ function getOfferPlatform(offer, gamePlatforms) {
   return (gamePlatforms && gamePlatforms[0]) || 'PlayStation';
 }
 
+function formatColones(usdAmount, exchangeRate) {
+  const crc = Math.round((Number(usdAmount) || 0) * exchangeRate);
+  return `₡${crc.toLocaleString('es-CR')}`;
+}
+
 export default function App() {
   const [theme, setTheme] = useState('dark');
   const [activeTab, setActiveTab] = useState('catalog');
@@ -77,6 +82,15 @@ export default function App() {
   const [metricsData, setMetricsData] = useState({ generatedAt: null, recentRuns: [], stageMetrics: [] });
   const [loading, setLoading] = useState(true);
 
+  // Tipo de cambio del dólar BCCR (Venta y Compra)
+  const [bccrRate, setBccrRate] = useState({
+    venta: 512.50,
+    compra: 504.20,
+    fecha: new Date().toLocaleDateString('es-CR'),
+    fuente: 'BCCR'
+  });
+
+  // Filtros, Ordenamiento y Paginación
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [platformFilter, setPlatformFilter] = useState('all');
@@ -86,10 +100,12 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(24);
 
+  // Plataforma seleccionada por tarjeta y en el modal
   const [cardPlatformMap, setCardPlatformMap] = useState({});
   const [selectedGame, setSelectedGame] = useState(null);
   const [modalPlatform, setModalPlatform] = useState('all');
 
+  // Lista de deseos / Alertas
   const [wishlist, setWishlist] = useState(() => {
     const saved = localStorage.getItem('radar_wishlist_alerts');
     return saved ? JSON.parse(saved) : [];
@@ -101,6 +117,51 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
+
+  // Descargar tipo de cambio oficial del BCCR (Indicadores Económicos 317 / 318 vía API Hacienda CR + respaldo)
+  useEffect(() => {
+    async function fetchBccrExchangeRate() {
+      try {
+        const res = await fetch('https://api.hacienda.go.cr/indicadores/tc/dolar');
+        if (res.ok) {
+          const data = await res.json();
+          const ventaVal = Number(data?.venta?.valor);
+          const compraVal = Number(data?.compra?.valor);
+          if (ventaVal > 0) {
+            setBccrRate({
+              venta: ventaVal,
+              compra: compraVal > 0 ? compraVal : Number((ventaVal - 8).toFixed(2)),
+              fecha: data?.venta?.fecha ? new Date(data.venta.fecha).toLocaleDateString('es-CR') : new Date().toLocaleDateString('es-CR'),
+              fuente: 'BCCR Oficial'
+            });
+            return;
+          }
+        }
+      } catch {
+        // Si falla la red local hacia Hacienda, intentar el segundo proveedor en vivo
+      }
+
+      try {
+        const fallbackRes = await fetch('https://open.er-api.com/v6/latest/USD');
+        if (fallbackRes.ok) {
+          const erData = await fallbackRes.json();
+          const crcRate = Number(erData?.rates?.CRC);
+          if (crcRate > 0) {
+            setBccrRate({
+              venta: Number(crcRate.toFixed(2)),
+              compra: Number((crcRate - 7.5).toFixed(2)),
+              fecha: new Date().toLocaleDateString('es-CR'),
+              fuente: 'BCCR / FX Live'
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Usando tipo de cambio de referencia BCCR:', err);
+      }
+    }
+
+    fetchBccrExchangeRate();
+  }, []);
 
   useEffect(() => {
     async function loadStaticJson() {
@@ -227,6 +288,7 @@ export default function App() {
 
   return (
     <div>
+      {/* Barra de Navegación Superior con Tipo de Cambio del Dólar BCCR */}
       <header className="navbar">
         <div className="navbar-inner">
           <div className="brand-block">
@@ -237,6 +299,27 @@ export default function App() {
                 IC-3101 · Última actualización: {catalogData.generatedAt ? new Date(catalogData.generatedAt).toLocaleString('es-CR') : 'Sincronizando...'}
               </div>
             </div>
+          </div>
+
+          {/* Indicador del Tipo de Cambio del Dólar BCCR en la parte superior */}
+          <div
+            className="mono"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.55rem',
+              padding: '0.38rem 0.75rem',
+              borderRadius: '8px',
+              background: 'rgba(16, 185, 129, 0.12)',
+              border: '1px solid rgba(16, 185, 129, 0.35)',
+              fontSize: '0.76rem'
+            }}
+            title={`Tipo de cambio del dólar (${bccrRate.fuente} - ${bccrRate.fecha})`}
+          >
+            <DollarSign size={14} style={{ color: '#10B981' }} />
+            <span>
+              <strong>BCCR Dólar:</strong> Venta <strong style={{ color: '#10B981' }}>₡{bccrRate.venta.toFixed(2)}</strong> · Compra ₡{bccrRate.compra.toFixed(2)}
+            </span>
           </div>
 
           <div className="nav-tabs">
@@ -272,7 +355,7 @@ export default function App() {
       <main className="app-container">
         {loading ? (
           <div className="mono" style={{ padding: '3rem', textAlign: 'center' }}>
-            Cargando catálogo de juegos únicos y métricas multinúcleo...
+            Cargando catálogo de juegos reales y tipo de cambio del BCCR...
           </div>
         ) : activeTab === 'catalog' ? (
           <>
@@ -376,6 +459,7 @@ export default function App() {
 
                 const activeBestOffer = platOffers[0] || (game.offers || [])[0];
                 const activePrice = activeBestOffer ? activeBestOffer.currentPriceUsd : game.bestPriceUsd;
+                const activeRegular = activeBestOffer?.regularPriceUsd || game.msrpUsd;
                 const activeDiscount = activeBestOffer ? activeBestOffer.discountPct : game.bestDiscountPct;
                 const activeStoreName = activeBestOffer ? activeBestOffer.storeName : '';
 
@@ -392,7 +476,7 @@ export default function App() {
                   >
                     <div className="card-image-wrap">
                       <img
-                        src={game.coverUrl}
+                        src={game.coverUrl || createFallbackCoverDataUri(game)}
                         alt={game.title}
                         loading="lazy"
                         onError={e => {
@@ -453,8 +537,19 @@ export default function App() {
 
                       <div className="card-footer">
                         <div>
-                          <span className="price-current mono">${activePrice.toFixed(2)}</span>
-                          <span className="price-regular mono">${game.msrpUsd.toFixed(2)}</span>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.45rem', flexWrap: 'wrap' }}>
+                            <span className="price-current mono">${activePrice.toFixed(2)}</span>
+                            <span className="price-regular mono">${activeRegular.toFixed(2)}</span>
+                          </div>
+                          {/* Precio calculado en Colones Costarricenses (BCCR) */}
+                          <div className="mono" style={{ fontSize: '0.82rem', fontWeight: 700, color: '#38BDF8', marginTop: '0.12rem' }}>
+                            {formatColones(activePrice, bccrRate.venta)}{' '}
+                            {activeRegular > activePrice && (
+                              <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textDecoration: 'line-through', fontWeight: 400 }}>
+                                {formatColones(activeRegular, bccrRate.venta)}
+                              </span>
+                            )}
+                          </div>
                           {activeStoreName && (
                             <div className="mono" style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '0.1rem' }}>
                               en {activeStoreName}
@@ -719,8 +814,8 @@ export default function App() {
                 <thead>
                   <tr>
                     <th>Juego</th>
-                    <th>Precio Actual</th>
-                    <th>Precio Meta</th>
+                    <th>Precio Actual (USD / CRC)</th>
+                    <th>Precio Meta (USD / CRC)</th>
                     <th>Canal</th>
                     <th>Destino</th>
                     <th>Estado</th>
@@ -730,8 +825,10 @@ export default function App() {
                   {wishlist.map(item => (
                     <tr key={item.id}>
                       <td>{item.gameTitle}</td>
-                      <td>${item.currentBestUsd.toFixed(2)}</td>
-                      <td style={{ color: 'var(--badge-sale)', fontWeight: 700 }}>${item.targetPriceUsd.toFixed(2)}</td>
+                      <td>${item.currentBestUsd.toFixed(2)} ({formatColones(item.currentBestUsd, bccrRate.venta)})</td>
+                      <td style={{ color: 'var(--badge-sale)', fontWeight: 700 }}>
+                        ${item.targetPriceUsd.toFixed(2)} ({formatColones(item.targetPriceUsd, bccrRate.venta)})
+                      </td>
                       <td>{item.channel.toUpperCase()}</td>
                       <td>{item.destination}</td>
                       <td>Activo (Monitoreo 24h)</td>
@@ -751,7 +848,7 @@ export default function App() {
               <div>
                 <h2 style={{ fontSize: '1.35rem', fontWeight: 700 }}>{selectedGame.title}</h2>
                 <div className="mono" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-                  MSRP Referencia: <strong>${selectedGame.msrpUsd.toFixed(2)}</strong> · Metacritic: <strong>{selectedGame.metacriticScore}</strong> · OpenCritic: <strong>{selectedGame.opencriticScore}</strong>
+                  MSRP Referencia: <strong>${selectedGame.msrpUsd.toFixed(2)} ({formatColones(selectedGame.msrpUsd, bccrRate.venta)})</strong> · Metacritic: <strong>{selectedGame.metacriticScore}</strong> · OpenCritic: <strong>{selectedGame.opencriticScore}</strong>
                 </div>
               </div>
               <button className="btn" onClick={() => setSelectedGame(null)}>Cerrar ✕</button>
@@ -798,7 +895,7 @@ export default function App() {
             </div>
 
             <h3 style={{ fontSize: '0.95rem', marginBottom: '0.4rem' }}>
-              Comparativa de Precios por Tienda ({modalPlatform === 'all' ? 'Todas las plataformas' : modalPlatform})
+              Comparativa de Precios por Tienda ({modalPlatform === 'all' ? 'Todas las plataformas' : modalPlatform}) · TC BCCR: ₡{bccrRate.venta.toFixed(2)}
             </h3>
             <table className="data-table mono" style={{ marginBottom: '1.4rem' }}>
               <thead>
@@ -806,30 +903,35 @@ export default function App() {
                   <th>Plataforma</th>
                   <th>Tienda</th>
                   <th>Formato</th>
-                  <th>Precio Actual</th>
+                  <th>Precio (USD)</th>
+                  <th>Precio en Colones (BCCR)</th>
                   <th>Precio Regular</th>
                   <th>Descuento</th>
                   <th>Enlace</th>
                 </tr>
               </thead>
               <tbody>
-                {modalFilteredOffers.map((offer, idx) => (
-                  <tr key={`${offer.storeCode}-${offer.platform}-${idx}`}>
-                    <td><span className="platform-tag platform-tag-active">{offer.platform}</span></td>
-                    <td style={{ fontWeight: 600 }}>{offer.storeName}</td>
-                    <td>{offer.format === 'physical' ? 'Físico' : 'Digital'}</td>
-                    <td style={{ color: 'var(--badge-sale)', fontWeight: 700 }}>${offer.currentPriceUsd.toFixed(2)}</td>
-                    <td style={{ textDecoration: 'line-through', color: 'var(--text-secondary)' }}>
-                      ${(offer.regularPriceUsd || selectedGame.msrpUsd).toFixed(2)}
-                    </td>
-                    <td>-{offer.discountPct.toFixed(0)}%</td>
-                    <td>
-                      <a href={offer.productUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--brand-accent)', textDecoration: 'none' }}>
-                        Ir a tienda <ExternalLink size={12} />
-                      </a>
-                    </td>
-                  </tr>
-                ))}
+                {modalFilteredOffers.map((offer, idx) => {
+                  const regUsd = offer.regularPriceUsd || selectedGame.msrpUsd;
+                  return (
+                    <tr key={`${offer.storeCode}-${offer.platform}-${idx}`}>
+                      <td><span className="platform-tag platform-tag-active">{offer.platform}</span></td>
+                      <td style={{ fontWeight: 600 }}>{offer.storeName}</td>
+                      <td>{offer.format === 'physical' ? 'Físico' : 'Digital'}</td>
+                      <td style={{ color: 'var(--badge-sale)', fontWeight: 700 }}>${offer.currentPriceUsd.toFixed(2)}</td>
+                      <td style={{ color: '#38BDF8', fontWeight: 700 }}>{formatColones(offer.currentPriceUsd, bccrRate.venta)}</td>
+                      <td style={{ textDecoration: 'line-through', color: 'var(--text-secondary)' }}>
+                        ${regUsd.toFixed(2)} ({formatColones(regUsd, bccrRate.venta)})
+                      </td>
+                      <td>-{offer.discountPct.toFixed(0)}%</td>
+                      <td>
+                        <a href={offer.productUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--brand-accent)', textDecoration: 'none' }}>
+                          Ir a tienda <ExternalLink size={12} />
+                        </a>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
 
@@ -837,7 +939,7 @@ export default function App() {
             <PriceHistoryChart game={selectedGame} />
 
             <form onSubmit={handleAddAlert} style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: 600 }}><Bell size={14} /> Recibir alerta cuando baje de ($):</span>
+              <span style={{ fontSize: '0.85rem', fontWeight: 600 }}><Bell size={14} /> Recibir alerta cuando baje de ($ USD):</span>
               <input
                 type="number"
                 step="0.01"
@@ -847,6 +949,9 @@ export default function App() {
                 onChange={e => setAlertTargetPrice(e.target.value)}
                 required
               />
+              <span className="mono" style={{ fontSize: '0.78rem', color: '#38BDF8' }}>
+                ({formatColones(alertTargetPrice, bccrRate.venta)})
+              </span>
               <select className="input-control" value={alertChannel} onChange={e => setAlertChannel(e.target.value)}>
                 <option value="telegram">Telegram (@usuario / Chat ID)</option>
                 <option value="email">Correo Electrónico</option>
