@@ -5,24 +5,24 @@ import {
 } from 'lucide-react';
 
 const IO_SWEEP_DATA = [
-  { p: 'Sec', workers: 1, medianS: 420.0, sAbs: 1.00, sRel: 1.00, eff: 1.00, karpFlatt: 0.000 },
-  { p: '1',   workers: 1, medianS: 432.6, sAbs: 0.97, sRel: 1.00, eff: 1.00, karpFlatt: 0.000 },
-  { p: '2',   workers: 2, medianS: 217.2, sAbs: 1.93, sRel: 1.99, eff: 1.00, karpFlatt: 0.004 },
-  { p: '4',   workers: 4, medianS: 109.5, sAbs: 3.84, sRel: 3.95, eff: 0.99, karpFlatt: 0.004 },
-  { p: '8',   workers: 8, medianS: 55.6,  sAbs: 7.56, sRel: 7.78, eff: 0.97, karpFlatt: 0.004 },
-  { p: '16',  workers: 16, medianS: 28.1, sAbs: 14.95, sRel: 15.39, eff: 0.96, karpFlatt: 0.004 },
-  { p: '32',  workers: 32, medianS: 14.06, sAbs: 29.87, sRel: 30.76, eff: 0.96, karpFlatt: 0.001 },
-  { p: '64',  workers: 64, medianS: 8.95,  sAbs: 46.92, sRel: 48.33, eff: 0.76, karpFlatt: 0.005 },
+  { p: 'Sec', workers: 1,  medianS: 443.31, sAbs: 1.00,  sRel: 1.00,  eff: 1.00, karpFlatt: 0.0000 },
+  { p: '1',   workers: 1,  medianS: 443.57, sAbs: 1.00,  sRel: 1.00,  eff: 1.00, karpFlatt: 0.0000 },
+  { p: '2',   workers: 2,  medianS: 221.51, sAbs: 2.00,  sRel: 2.00,  eff: 1.00, karpFlatt: -0.0012 },
+  { p: '4',   workers: 4,  medianS: 111.65, sAbs: 3.97,  sRel: 3.97,  eff: 0.99, karpFlatt: 0.0023 },
+  { p: '8',   workers: 8,  medianS: 55.28,  sAbs: 8.02,  sRel: 8.02,  eff: 1.00, karpFlatt: -0.0004 },
+  { p: '16',  workers: 16, medianS: 27.73,  sAbs: 15.99, sRel: 16.00, eff: 1.00, karpFlatt: 0.0000 },
+  { p: '32',  workers: 32, medianS: 13.86,  sAbs: 31.98, sRel: 31.99, eff: 1.00, karpFlatt: 0.0000 },
+  { p: '64',  workers: 64, medianS: 6.94,   sAbs: 63.87, sRel: 63.91, eff: 1.00, karpFlatt: 0.0000 },
 ];
 
 const CPU_SWEEP_DATA = [
-  { p: 'Sec', workers: 1,  medianS: 29.00, sAbs: 1.00, sRel: 1.00, amdahl: 1.00, eff: 1.00, karpFlatt: 0.000 },
-  { p: '1',   workers: 1,  medianS: 29.87, sAbs: 0.97, sRel: 1.00, amdahl: 1.00, eff: 1.00, karpFlatt: 0.000 },
-  { p: '2',   workers: 2,  medianS: 15.68, sAbs: 1.85, sRel: 1.91, amdahl: 1.90, eff: 0.95, karpFlatt: 0.050 },
-  { p: '4',   workers: 4,  medianS: 8.59,  sAbs: 3.38, sRel: 3.48, amdahl: 3.48, eff: 0.87, karpFlatt: 0.050 },
-  { p: '6 (P_fis)', workers: 6, medianS: 6.22, sAbs: 4.66, sRel: 4.80, amdahl: 4.80, eff: 0.80, karpFlatt: 0.050 },
-  { p: '12 (P_log)', workers: 12, medianS: 5.15, sAbs: 5.63, sRel: 5.80, amdahl: 7.74, eff: 0.48, karpFlatt: 0.097 },
-  { p: '24 (2P_log)', workers: 24, medianS: 5.45, sAbs: 5.32, sRel: 5.48, amdahl: 11.16, eff: 0.23, karpFlatt: 0.147 },
+  { p: 'Sec',         workers: 1,  medianS: 2.938, sAbs: 1.00, sRel: 1.00, amdahl: 1.00, eff: 1.00, karpFlatt: 0.0000 },
+  { p: '1',           workers: 1,  medianS: 2.948, sAbs: 1.00, sRel: 1.00, amdahl: 1.00, eff: 1.00, karpFlatt: 0.0000 },
+  { p: '2',           workers: 2,  medianS: 2.263, sAbs: 1.30, sRel: 1.30, amdahl: 1.33, eff: 0.65, karpFlatt: 0.5349 },
+  { p: '4',           workers: 4,  medianS: 1.766, sAbs: 1.66, sRel: 1.67, amdahl: 1.60, eff: 0.42, karpFlatt: 0.4652 },
+  { p: '6 (P_fis)',   workers: 6,  medianS: 1.715, sAbs: 1.71, sRel: 1.72, amdahl: 1.71, eff: 0.29, karpFlatt: 0.4978 },
+  { p: '12 (P_log)',  workers: 12, medianS: 1.661, sAbs: 1.77, sRel: 1.77, amdahl: 1.85, eff: 0.15, karpFlatt: 0.5238 },
+  { p: '24 (2P_log)', workers: 24, medianS: 1.657, sAbs: 1.77, sRel: 1.78, amdahl: 1.92, eff: 0.07, karpFlatt: 0.5431 },
 ];
 
 const SITE_REQUEST_STATS = [

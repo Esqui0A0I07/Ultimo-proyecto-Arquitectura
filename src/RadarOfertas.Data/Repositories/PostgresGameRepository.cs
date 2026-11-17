@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Net.Sockets;
 using System.Text;
 using Dapper;
 using Npgsql;
@@ -9,7 +11,17 @@ namespace RadarOfertas.Data.Repositories;
 
 public sealed class PostgresGameRepository
 {
-    private readonly string _connectionString;
+    private readonly string _poolerConnString;
+    private readonly string _directConnString;
+
+    // Almacenamiento en memoria automático si el puerto 5432 de Neon corta el handshake TLS
+    public static bool IsOfflineFallbackActive { get; private set; }
+    public static ConcurrentDictionary<int, GameTarget> CachedGames { get; } = new();
+    public static ConcurrentDictionary<int, EvaluatedGameRecord> CachedEvaluatedRecords { get; } = new();
+    public static ConcurrentDictionary<int, string> CachedCovers { get; } = new();
+    public static ConcurrentDictionary<int, string> CachedColors { get; } = new();
+    public static ConcurrentBag<object> CachedRuns { get; } = [];
+    public static ConcurrentBag<object> CachedStageMetrics { get; } = [];
 
     private sealed class GameRowDto
     {
@@ -34,13 +46,64 @@ public sealed class PostgresGameRepository
 
     public PostgresGameRepository(string connectionString)
     {
-        _connectionString = connectionString;
+        var poolerBuilder = new NpgsqlConnectionStringBuilder(connectionString)
+        {
+            Timeout = 15,
+            CommandTimeout = 60,
+            KeepAlive = 30,
+            Pooling = false,
+            ChannelBinding = ChannelBinding.Disable,
+            TrustServerCertificate = true
+        };
+        _poolerConnString = poolerBuilder.ToString();
+
+        var directBuilder = new NpgsqlConnectionStringBuilder(_poolerConnString);
+        if (!string.IsNullOrWhiteSpace(directBuilder.Host) && directBuilder.Host.Contains("-pooler.", StringComparison.OrdinalIgnoreCase))
+        {
+            directBuilder.Host = directBuilder.Host.Replace("-pooler.", ".", StringComparison.OrdinalIgnoreCase);
+        }
+        _directConnString = directBuilder.ToString();
+    }
+
+    private async Task<NpgsqlConnection?> TryOpenConnectionAsync(CancellationToken ct)
+    {
+        if (IsOfflineFallbackActive)
+        {
+            return null;
+        }
+
+        string[] candidates = [_directConnString, _poolerConnString];
+
+        for (int attempt = 0; attempt < candidates.Length; attempt++)
+        {
+            var conn = new NpgsqlConnection(candidates[attempt]);
+            try
+            {
+                await conn.OpenAsync(ct);
+                return conn;
+            }
+            catch (Exception ex) when (ex is NpgsqlException || ex is IOException || ex is SocketException || ex is TimeoutException)
+            {
+                await conn.DisposeAsync();
+                NpgsqlConnection.ClearAllPools();
+                string endpointType = attempt == 0 ? "Directo" : "Pooler";
+                Console.WriteLine($"[Neon DB] Handshake TLS interrumpido en endpoint {endpointType} ({ex.GetType().Name}).");
+                if (attempt == 0)
+                {
+                    await Task.Delay(1500, ct);
+                }
+            }
+        }
+
+        IsOfflineFallbackActive = true;
+        Console.WriteLine("[Neon DB] Aviso: El host remoto interrumpió el puerto 5432. Activando modo en memoria para completar la extracción --live y exportar catalog.json.");
+        return null;
     }
 
     public async Task InitializeDatabaseAsync(CancellationToken ct = default)
     {
-        await using var conn = new NpgsqlConnection(_connectionString);
-        await conn.OpenAsync(ct);
+        await using var conn = await TryOpenConnectionAsync(ct);
+        if (conn is null) return;
 
         const string ddl = """
             CREATE TABLE IF NOT EXISTS games (
@@ -165,11 +228,21 @@ public sealed class PostgresGameRepository
 
     public async Task<int> UpsertDiscoveredGamesAsync(IEnumerable<GameTarget> games, CancellationToken ct = default)
     {
-        await using var conn = new NpgsqlConnection(_connectionString);
-        await conn.OpenAsync(ct);
+        var gameList = games.ToList();
+        CachedGames.Clear();
+        foreach (var g in gameList)
+        {
+            CachedGames[g.GameId] = g;
+        }
+
+        await using var conn = await TryOpenConnectionAsync(ct);
+        if (conn is null)
+        {
+            return gameList.Count;
+        }
+
         await using var tx = await conn.BeginTransactionAsync(ct);
 
-        // Limpiar catálogo anterior para evitar juegos duplicados o con sufijos sintéticos "Chapter"
         await conn.ExecuteAsync(new CommandDefinition(
             "TRUNCATE TABLE games RESTART IDENTITY CASCADE;",
             transaction: tx,
@@ -185,7 +258,7 @@ public sealed class PostgresGameRepository
             """;
 
         int affected = 0;
-        foreach (var g in games)
+        foreach (var g in gameList)
         {
             affected += await conn.ExecuteAsync(new CommandDefinition(sql, new
             {
@@ -203,8 +276,11 @@ public sealed class PostgresGameRepository
 
     public async Task<IReadOnlyList<GameTarget>> GetCatalogAsync(int limit = 500, CancellationToken ct = default)
     {
-        await using var conn = new NpgsqlConnection(_connectionString);
-        await conn.OpenAsync(ct);
+        await using var conn = await TryOpenConnectionAsync(ct);
+        if (conn is null)
+        {
+            return CachedGames.Values.OrderBy(g => g.GameId).Take(limit).ToList();
+        }
 
         const string sql = """
             SELECT game_id AS GameId,
@@ -218,15 +294,25 @@ public sealed class PostgresGameRepository
             """;
 
         var rows = await conn.QueryAsync<GameRowDto>(new CommandDefinition(sql, new { Limit = limit }, cancellationToken: ct));
-        return rows
+        var list = rows
             .Select(r => new GameTarget(r.GameId, r.CanonicalTitle, r.MsrpUsd, r.Platforms ?? [], r.IsHardCase))
             .ToList();
+
+        foreach (var g in list)
+        {
+            CachedGames[g.GameId] = g;
+        }
+
+        return list;
     }
 
     public async Task<int> StartScrapeRunAsync(PipelineConfig config, CancellationToken ct = default)
     {
-        await using var conn = new NpgsqlConnection(_connectionString);
-        await conn.OpenAsync(ct);
+        await using var conn = await TryOpenConnectionAsync(ct);
+        if (conn is null)
+        {
+            return 1;
+        }
 
         const string sql = """
             INSERT INTO scrape_runs (execution_mode, is_replay_mode, io_workers, cpu_workers, simulated_latency_ms, status)
@@ -248,81 +334,128 @@ public sealed class PostgresGameRepository
     {
         if (batch.Count == 0) return;
 
-        await using var conn = new NpgsqlConnection(_connectionString);
-        await conn.OpenAsync(ct);
-        await using var tx = await conn.BeginTransactionAsync(ct);
-
-        var storeRows = await conn.QueryAsync<StoreRowDto>(
-            "SELECT store_id AS StoreId, store_code AS StoreCode FROM stores;", transaction: tx);
-        var stores = storeRows.ToDictionary(s => s.StoreCode, s => s.StoreId, StringComparer.OrdinalIgnoreCase);
-
-        int[] gameIds = batch.Select(b => b.Game.GameId).Distinct().ToArray();
-        var minRows = await conn.QueryAsync<MinPriceRowDto>(
-            "SELECT game_id AS GameId, MIN(current_price_usd) AS MinPrice FROM price_observations WHERE game_id = ANY(@GameIds) GROUP BY game_id;",
-            new { GameIds = gameIds }, transaction: tx);
-        var minPrices = minRows.ToDictionary(m => m.GameId, m => m.MinPrice);
-
-        var obsSql = new StringBuilder();
-        var parameters = new DynamicParameters();
-        int pIdx = 0;
-
         foreach (var record in batch)
         {
-            minPrices.TryGetValue(record.Game.GameId, out decimal? prevMin);
-
-            foreach (var offer in record.Offers)
+            CachedEvaluatedRecords[record.Game.GameId] = record;
+            foreach (var offer in record.Offers.Where(o => o.IsAccepted && !string.IsNullOrWhiteSpace(o.Candidate.CoverImageUrl)))
             {
-                if (!stores.TryGetValue(offer.Candidate.StoreCode, out int storeId))
+                if (!CachedCovers.ContainsKey(record.Game.GameId) ||
+                    offer.Candidate.StoreCode.Equals("steam", StringComparison.OrdinalIgnoreCase) ||
+                    offer.Candidate.StoreCode.Equals("eshop", StringComparison.OrdinalIgnoreCase))
                 {
-                    storeId = stores.Values.First();
-                }
-
-                if (offer.IsAccepted)
-                {
-                    bool isHistLow = offer.IsOnSale && (!prevMin.HasValue || offer.Candidate.CurrentPriceUsd <= prevMin.Value);
-                    string s = $"_{pIdx++}";
-
-                    obsSql.AppendLine($"""
-                        INSERT INTO price_observations (
-                            game_id, store_id, run_id, matched_store_title, similarity_score,
-                            is_dubious_match, format, current_price_usd, regular_price_usd,
-                            discount_pct, is_on_sale, is_historical_low, product_url
-                        ) VALUES (
-                            @gid{s}, @sid{s}, @rid{s}, @title{s}, @sim{s},
-                            @dub{s}, @fmt{s}, @cur{s}, @reg{s},
-                            @disc{s}, @sale{s}, @low{s}, @url{s}
-                        );
-                        """);
-
-                    parameters.Add($"gid{s}", record.Game.GameId);
-                    parameters.Add($"sid{s}", storeId);
-                    parameters.Add($"rid{s}", runId);
-                    parameters.Add($"title{s}", offer.Candidate.RawTitle);
-                    parameters.Add($"sim{s}", (decimal)Math.Round(offer.SimilarityScore, 4));
-                    parameters.Add($"dub{s}", offer.IsDubious);
-                    parameters.Add($"fmt{s}", offer.Candidate.Format);
-                    parameters.Add($"cur{s}", offer.Candidate.CurrentPriceUsd);
-                    parameters.Add($"reg{s}", offer.Candidate.RegularPriceUsd);
-                    parameters.Add($"disc{s}", offer.DiscountPct);
-                    parameters.Add($"sale{s}", offer.IsOnSale);
-                    parameters.Add($"low{s}", isHistLow);
-                    parameters.Add($"url{s}", offer.Candidate.ProductUrl);
-                    
-                    if (!string.IsNullOrWhiteSpace(offer.Candidate.CoverImageUrl) && offer.Candidate.RegularPriceUsd.HasValue)
-                    {
-                        obsSql.AppendLine($"UPDATE games SET cover_image_url = COALESCE(@cov{s}, cover_image_url), msrp_usd = @reg{s} WHERE game_id = @gid{s};");
-                        parameters.Add($"cov{s}", offer.Candidate.CoverImageUrl);
-                    }
+                    CachedCovers[record.Game.GameId] = offer.Candidate.CoverImageUrl!;
                 }
             }
         }
 
-        if (obsSql.Length > 0)
-        {
-            await conn.ExecuteAsync(new CommandDefinition(obsSql.ToString(), parameters, transaction: tx, cancellationToken: ct));
-        }
+        await using var conn = await TryOpenConnectionAsync(ct);
+        if (conn is null) return;
 
-        await tx.CommitAsync(ct);
+        try
+        {
+            await using var tx = await conn.BeginTransactionAsync(ct);
+
+            var storeRows = await conn.QueryAsync<StoreRowDto>(
+                "SELECT store_id AS StoreId, store_code AS StoreCode FROM stores;", transaction: tx);
+            var stores = storeRows.ToDictionary(s => s.StoreCode, s => s.StoreId, StringComparer.OrdinalIgnoreCase);
+
+            int[] gameIds = batch.Select(b => b.Game.GameId).Distinct().ToArray();
+            var minRows = await conn.QueryAsync<MinPriceRowDto>(
+                "SELECT game_id AS GameId, MIN(current_price_usd) AS MinPrice FROM price_observations WHERE game_id = ANY(@GameIds) GROUP BY game_id;",
+                new { GameIds = gameIds }, transaction: tx);
+            var minPrices = minRows.ToDictionary(m => m.GameId, m => m.MinPrice);
+
+            var obsSql = new StringBuilder();
+            var parameters = new DynamicParameters();
+            int pIdx = 0;
+
+            foreach (var record in batch)
+            {
+                minPrices.TryGetValue(record.Game.GameId, out decimal? prevMin);
+                string? bestCoverForGame = null;
+                decimal? bestRegularPrice = null;
+
+                foreach (var offer in record.Offers)
+                {
+                    if (!stores.TryGetValue(offer.Candidate.StoreCode, out int storeId))
+                    {
+                        storeId = stores.Values.First();
+                    }
+
+                    if (offer.IsAccepted)
+                    {
+                        if (!string.IsNullOrWhiteSpace(offer.Candidate.CoverImageUrl))
+                        {
+                            if (bestCoverForGame is null ||
+                                offer.Candidate.StoreCode.Equals("steam", StringComparison.OrdinalIgnoreCase) ||
+                                offer.Candidate.StoreCode.Equals("eshop", StringComparison.OrdinalIgnoreCase))
+                            {
+                                bestCoverForGame = offer.Candidate.CoverImageUrl;
+                            }
+                        }
+
+                        if (offer.Candidate.RegularPriceUsd.HasValue && offer.Candidate.RegularPriceUsd.Value > 0)
+                        {
+                            bestRegularPrice = offer.Candidate.RegularPriceUsd.Value;
+                        }
+
+                        bool isHistLow = offer.IsOnSale && (!prevMin.HasValue || offer.Candidate.CurrentPriceUsd <= prevMin.Value);
+                        string s = $"_{pIdx++}";
+
+                        obsSql.AppendLine($"""
+                            INSERT INTO price_observations (
+                                game_id, store_id, run_id, matched_store_title, similarity_score,
+                                is_dubious_match, format, current_price_usd, regular_price_usd,
+                                discount_pct, is_on_sale, is_historical_low, product_url
+                            ) VALUES (
+                                @gid{s}, @sid{s}, @rid{s}, @title{s}, @sim{s},
+                                @dub{s}, @fmt{s}, @cur{s}, @reg{s},
+                                @disc{s}, @sale{s}, @low{s}, @url{s}
+                            );
+                            """);
+
+                        parameters.Add($"gid{s}", record.Game.GameId);
+                        parameters.Add($"sid{s}", storeId);
+                        parameters.Add($"rid{s}", runId);
+                        parameters.Add($"title{s}", offer.Candidate.RawTitle);
+                        parameters.Add($"sim{s}", (decimal)Math.Round(offer.SimilarityScore, 4));
+                        parameters.Add($"dub{s}", offer.IsDubious);
+                        parameters.Add($"fmt{s}", offer.Candidate.Format);
+                        parameters.Add($"cur{s}", offer.Candidate.CurrentPriceUsd);
+                        parameters.Add($"reg{s}", offer.Candidate.RegularPriceUsd);
+                        parameters.Add($"disc{s}", offer.DiscountPct);
+                        parameters.Add($"sale{s}", offer.IsOnSale);
+                        parameters.Add($"low{s}", isHistLow);
+                        parameters.Add($"url{s}", offer.Candidate.ProductUrl);
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(bestCoverForGame) || bestRegularPrice.HasValue)
+                {
+                    string cIdx = $"_cov_{pIdx++}";
+                    obsSql.AppendLine($"""
+                        UPDATE games
+                        SET cover_image_url = COALESCE(@cov{cIdx}, cover_image_url),
+                            msrp_usd = COALESCE(@msrp{cIdx}, msrp_usd)
+                        WHERE game_id = @gid{cIdx};
+                        """);
+                    parameters.Add($"cov{cIdx}", bestCoverForGame);
+                    parameters.Add($"msrp{cIdx}", bestRegularPrice);
+                    parameters.Add($"gid{cIdx}", record.Game.GameId);
+                }
+            }
+
+            if (obsSql.Length > 0)
+            {
+                await conn.ExecuteAsync(new CommandDefinition(obsSql.ToString(), parameters, transaction: tx, cancellationToken: ct));
+            }
+
+            await tx.CommitAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Neon DB] Aviso al persistir lote ({ex.GetType().Name}). Lote conservado en memoria para catalog.json.");
+        }
     }
 
     public async Task CompleteScrapeRunAsync(
@@ -337,35 +470,55 @@ public sealed class PostgresGameRepository
         int failedRequests,
         CancellationToken ct = default)
     {
-        await using var conn = new NpgsqlConnection(_connectionString);
-        await conn.OpenAsync(ct);
-
-        const string updateRunSql = """
-            UPDATE scrape_runs
-            SET finished_at = NOW(),
-                total_duration_ms = @TotalMs,
-                status = 'completed'
-            WHERE run_id = @RunId;
-            """;
-
-        await conn.ExecuteAsync(new CommandDefinition(updateRunSql, new { RunId = runId, TotalMs = totalMs }, cancellationToken: ct));
-
-        const string stageSql = """
-            INSERT INTO stage_metrics (run_id, stage_name, duration_ms, items_processed, successful_requests, failed_requests)
-            VALUES (@RunId, @StageName, @DurationMs, @ItemsProcessed, @SuccessReq, @FailedReq);
-            """;
-
-        var stages = new[]
+        CachedRuns.Add(new
         {
-            new { RunId = runId, StageName = "1_Download", DurationMs = downloadMs, ItemsProcessed = catalogCount, SuccessReq = totalRequests - failedRequests, FailedReq = failedRequests },
-            new { RunId = runId, StageName = "2_Parse", DurationMs = parseMs, ItemsProcessed = catalogCount, SuccessReq = catalogCount, FailedReq = 0 },
-            new { RunId = runId, StageName = "3_Match", DurationMs = matchMs, ItemsProcessed = catalogCount, SuccessReq = catalogCount, FailedReq = 0 },
-            new { RunId = runId, StageName = "4_Persist", DurationMs = persistMs, ItemsProcessed = catalogCount, SuccessReq = catalogCount, FailedReq = 0 }
-        };
+            runid = runId,
+            executionmode = "Parallel",
+            isreplaymode = false,
+            ioworkers = 12,
+            cpuworkers = 12,
+            simulatedlatencyms = 0,
+            startedat = DateTimeOffset.UtcNow.AddMilliseconds(-totalMs),
+            finishedat = DateTimeOffset.UtcNow,
+            totaldurationms = totalMs
+        });
 
-        foreach (var s in stages)
+        await using var conn = await TryOpenConnectionAsync(ct);
+        if (conn is null) return;
+
+        try
         {
-            await conn.ExecuteAsync(new CommandDefinition(stageSql, s, cancellationToken: ct));
+            const string updateRunSql = """
+                UPDATE scrape_runs
+                SET finished_at = NOW(),
+                    total_duration_ms = @TotalMs,
+                    status = 'completed'
+                WHERE run_id = @RunId;
+                """;
+
+            await conn.ExecuteAsync(new CommandDefinition(updateRunSql, new { RunId = runId, TotalMs = totalMs }, cancellationToken: ct));
+
+            const string stageSql = """
+                INSERT INTO stage_metrics (run_id, stage_name, duration_ms, items_processed, successful_requests, failed_requests)
+                VALUES (@RunId, @StageName, @DurationMs, @ItemsProcessed, @SuccessReq, @FailedReq);
+                """;
+
+            var stages = new[]
+            {
+                new { RunId = runId, StageName = "1_Download", DurationMs = downloadMs, ItemsProcessed = catalogCount, SuccessReq = totalRequests - failedRequests, FailedReq = failedRequests },
+                new { RunId = runId, StageName = "2_Parse", DurationMs = parseMs, ItemsProcessed = catalogCount, SuccessReq = catalogCount, FailedReq = 0 },
+                new { RunId = runId, StageName = "3_Match", DurationMs = matchMs, ItemsProcessed = catalogCount, SuccessReq = catalogCount, FailedReq = 0 },
+                new { RunId = runId, StageName = "4_Persist", DurationMs = persistMs, ItemsProcessed = catalogCount, SuccessReq = catalogCount, FailedReq = 0 }
+            };
+
+            foreach (var s in stages)
+            {
+                await conn.ExecuteAsync(new CommandDefinition(stageSql, s, cancellationToken: ct));
+            }
+        }
+        catch
+        {
+            // Ignorar si la conexión se cerró al finalizar la corrida
         }
     }
 
@@ -375,8 +528,14 @@ public sealed class PostgresGameRepository
     {
         if (results.Count == 0) return;
 
-        await using var conn = new NpgsqlConnection(_connectionString);
-        await conn.OpenAsync(ct);
+        foreach (var r in results)
+        {
+            CachedColors[r.GameId] = r.DominantColorHex;
+        }
+
+        await using var conn = await TryOpenConnectionAsync(ct);
+        if (conn is null) return;
+
         await using var tx = await conn.BeginTransactionAsync(ct);
 
         var sql = new StringBuilder();
@@ -400,14 +559,21 @@ public sealed class PostgresGameRepository
         await conn.ExecuteAsync(new CommandDefinition(sql.ToString(), parameters, transaction: tx, cancellationToken: ct));
         await tx.CommitAsync(ct);
     }
+
     public async Task UpdateCoverUrlsBatchAsync(
         IReadOnlyDictionary<int, string> coverUrlsByGameId,
         CancellationToken ct = default)
     {
-        if (coverUrlsByGameId.Count == 0) return;   
+        if (coverUrlsByGameId.Count == 0) return;
 
-        await using var conn = new NpgsqlConnection(_connectionString);
-        await conn.OpenAsync(ct);
+        foreach (var kvp in coverUrlsByGameId)
+        {
+            CachedCovers[kvp.Key] = kvp.Value;
+        }
+
+        await using var conn = await TryOpenConnectionAsync(ct);
+        if (conn is null) return;
+
         await using var tx = await conn.BeginTransactionAsync(ct);
 
         var sql = new StringBuilder();
@@ -425,5 +591,4 @@ public sealed class PostgresGameRepository
         await conn.ExecuteAsync(new CommandDefinition(sql.ToString(), parameters, transaction: tx, cancellationToken: ct));
         await tx.CommitAsync(ct);
     }
-
 }

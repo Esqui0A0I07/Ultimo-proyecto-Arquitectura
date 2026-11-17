@@ -103,7 +103,16 @@ public static partial class LiveStoreScraper
                             if (finalUsd <= 0) continue;
 
                             int appId = item.GetProperty("id").GetInt32();
+                            string? tinyImg = item.TryGetProperty("tiny_image", out var ti) ? ti.GetString() : null;
+
                             string coverUrl = $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg";
+                            if (!string.IsNullOrWhiteSpace(tinyImg))
+                            {
+                                coverUrl = tinyImg.Contains($"/apps/{appId}/capsule_", StringComparison.OrdinalIgnoreCase)
+                                    ? tinyImg.Replace("capsule_231x87.jpg", "header.jpg", StringComparison.OrdinalIgnoreCase)
+                                    : tinyImg;
+                            }
+
                             string productUrl = $"https://store.steampowered.com/app/{appId}";
 
                             return new StoreCandidate(
@@ -213,7 +222,6 @@ public static partial class LiveStoreScraper
 
         var product = prodArray[0];
 
-        // Extraer imagen oficial del juego desde LocalizedProperties de Xbox
         string? xboxCoverUrl = null;
         if (product.TryGetProperty("LocalizedProperties", out var locProps) &&
             locProps.GetArrayLength() > 0 &&
