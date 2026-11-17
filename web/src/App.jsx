@@ -2,12 +2,15 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Search, Filter, Activity, Tag, Clock, ExternalLink, Bell, Sun, Moon,
   ChevronLeft, ChevronRight, AlertTriangle, CheckCircle2, Cpu, Gamepad2,
-  DollarSign, Send, Sparkles, Trash2, Mail
+  DollarSign, Send, Sparkles, Trash2
 } from 'lucide-react';
 
 const DEFAULT_TG_TOKEN = '9149338989:AAE0k2GUggDYI_A-fIvcvOgO2igFbKFyfZE';
 const DEFAULT_TG_CHAT_ID = '7016849983';
 const DEFAULT_EMAIL_WEBHOOK = 'https://script.google.com/macros/s/AKfycbwbtduJkdC5hQqujrniGRoluan3SFUUYAqenZgK5FDF4koDQQSs47XzUvLW18MpeiWhTA/exec';
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const TG_CHAT_ID_REGEX = /^(@[a-zA-Z0-9_]{5,}|-?\d{6,15})$/;
 
 const IO_SWEEP_DATA = [
   { p: 'Sec', workers: 1,  medianS: 443.31, sAbs: 1.00,  sRel: 1.00,  eff: 1.00, karpFlatt: 0.0000 },
@@ -114,12 +117,7 @@ export default function App() {
   const [alertChannel, setAlertChannel] = useState('telegram');
   const [alertDestination, setAlertDestination] = useState(DEFAULT_TG_CHAT_ID);
   const [alertTargetPrice, setAlertTargetPrice] = useState('');
-  const [telegramBotToken, setTelegramBotToken] = useState(
-    () => localStorage.getItem('radar_tg_token') || DEFAULT_TG_TOKEN
-  );
-  const [emailWebhookUrl, setEmailWebhookUrl] = useState(
-    () => localStorage.getItem('radar_email_webhook') || DEFAULT_EMAIL_WEBHOOK
-  );
+  const [alertValidationError, setAlertValidationError] = useState('');
   const [testToast, setTestToast] = useState(null);
 
   useEffect(() => {
@@ -258,6 +256,7 @@ export default function App() {
 
   function handleChannelChange(newChannel) {
     setAlertChannel(newChannel);
+    setAlertValidationError('');
     if (newChannel === 'telegram' && (!alertDestination || alertDestination.includes('@'))) {
       setAlertDestination(DEFAULT_TG_CHAT_ID);
     } else if (newChannel === 'email' && alertDestination === DEFAULT_TG_CHAT_ID) {
@@ -267,18 +266,38 @@ export default function App() {
 
   function handleAddAlert(e) {
     e.preventDefault();
-    if (!selectedGame || !alertDestination || !alertTargetPrice) return;
+    if (!selectedGame) return;
+
+    const cleanDest = alertDestination.trim();
+    const numericPrice = Number(alertTargetPrice);
+
+    if (!numericPrice || numericPrice <= 0) {
+      setAlertValidationError('Ingresa un precio meta mayor a $0.00 USD.');
+      return;
+    }
+
+    if (alertChannel === 'email' && !EMAIL_REGEX.test(cleanDest)) {
+      setAlertValidationError('Formato de correo inválido. Ejemplo válido: usuario@dominio.com');
+      return;
+    }
+
+    if (alertChannel === 'telegram' && !TG_CHAT_ID_REGEX.test(cleanDest)) {
+      setAlertValidationError('Ingresa un Chat ID numérico válido (ej. 7016849983) o un alias @usuario.');
+      return;
+    }
+
+    setAlertValidationError('');
     const bestOffer = (selectedGame.offers || [])[0];
     const newAlert = {
       id: Date.now(),
       gameId: selectedGame.id,
       gameTitle: selectedGame.title,
       currentBestUsd: selectedGame.bestPriceUsd,
-      targetPriceUsd: Number(alertTargetPrice),
+      targetPriceUsd: numericPrice,
       storeName: bestOffer?.storeName || 'Steam Store',
       productUrl: bestOffer?.productUrl || 'https://store.steampowered.com',
       channel: alertChannel,
-      destination: alertDestination.trim(),
+      destination: cleanDest,
       lastNotifiedAt: null,
       createdAt: new Date().toISOString()
     };
@@ -322,7 +341,6 @@ export default function App() {
 
     let deliveryStatus = 'Notificación en navegador activada';
 
-    // 1. Notificación nativa de Windows / Navegador
     if ('Notification' in window) {
       if (Notification.permission === 'granted') {
         new Notification(titleMsg, { body: bodyMsg });
@@ -334,10 +352,9 @@ export default function App() {
       }
     }
 
-    // 2. Canal Telegram: envío real por API HTTP
-    if (item.channel === 'telegram' && telegramBotToken.trim() !== '') {
+    if (item.channel === 'telegram') {
       try {
-        const tgUrl = `https://api.telegram.org/bot${telegramBotToken.trim()}/sendMessage`;
+        const tgUrl = `https://api.telegram.org/bot${DEFAULT_TG_TOKEN}/sendMessage`;
         const text = `🎮 *RADAR DE OFERTAS MULTINÚCLEO (IC-3101)*\n${titleMsg}\n\n💰 *Precio Oferta:* $${item.currentBestUsd.toFixed(2)} USD (${crcCurrent})\n🎯 *Tu Precio Meta:* $${item.targetPriceUsd.toFixed(2)} USD (${crcTarget})\n🏦 *TC BCCR Venta:* ₡${bccrRate.venta.toFixed(2)}\n🏬 *Tienda:* ${item.storeName || 'Steam / eShop'}\n🔗 [Comprar en tienda oficial](${item.productUrl || 'https://store.steampowered.com'})`;
         const res = await fetch(tgUrl, {
           method: 'POST',
@@ -349,16 +366,26 @@ export default function App() {
           })
         });
         if (res.ok) {
-          deliveryStatus = `✓ Mensaje REAL enviado a Telegram (ID: ${item.destination})`;
+          deliveryStatus = `✓ Mensaje enviado a Telegram (ID: ${item.destination})`;
         } else {
-          deliveryStatus = 'Error de Telegram: asegúrate de haber enviado /start a tu bot y usar tu ID numérico (7016849983)';
+          deliveryStatus = 'Error en Telegram: verifica haber iniciado el bot con /start';
         }
       } catch {
         deliveryStatus = 'Simulación local OK (Sin conexión a api.telegram.org)';
       }
-    }
-    // 3. Canal Correo Electrónico: envío real por HTTP (Google Apps Script o FormSubmit AJAX)
-    else if (item.channel === 'email') {
+    } else if (item.channel === 'email') {
+      if (!EMAIL_REGEX.test(item.destination.trim())) {
+        setTestToast({
+          title: '⚠ Formato de correo inválido',
+          body: `La dirección "${item.destination}" no tiene un formato de correo válido.`,
+          channel: 'EMAIL',
+          status: 'Envío cancelado por validación',
+          url: item.productUrl || 'https://store.steampowered.com',
+          timestamp: new Date().toLocaleTimeString('es-CR')
+        });
+        return;
+      }
+
       const emailSubject = `[Radar de Ofertas IC-3101] ${titleMsg} - $${item.currentBestUsd.toFixed(2)} (${crcCurrent})`;
       const htmlContent = `
         <div style="font-family: Arial, sans-serif; max-width: 560px; padding: 20px; border: 1px solid #102973; border-radius: 10px;">
@@ -376,7 +403,7 @@ export default function App() {
 
       setTestToast({
         title: titleMsg,
-        body: `Enviando correo electrónico real a ${item.destination}...`,
+        body: `Enviando correo electrónico a ${item.destination}...`,
         channel: 'EMAIL',
         status: 'Conectando con servidor de correo...',
         url: item.productUrl || 'https://store.steampowered.com',
@@ -384,50 +411,19 @@ export default function App() {
       });
 
       try {
-        if (emailWebhookUrl.trim() !== '') {
-          // Opción A: Envío directo por Google Apps Script propio (0% Spam, instantáneo)
-          await fetch(emailWebhookUrl.trim(), {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({
-              to: item.destination.trim(),
-              subject: emailSubject,
-              htmlBody: htmlContent
-            })
-          });
-          deliveryStatus = `✓ Correo enviado directo vía Google Apps Script a ${item.destination}`;
-        } else {
-          // Opción B: Envío directo por API HTTP de FormSubmit.co
-          const formRes = await fetch(`https://formsubmit.co/ajax/${encodeURIComponent(item.destination.trim())}`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json'
-            },
-            body: JSON.stringify({
-              _subject: emailSubject,
-              _template: 'table',
-              _captcha: 'false',
-              Evento: titleMsg,
-              Juego: item.gameTitle,
-              Precio_Actual_USD: `$${item.currentBestUsd.toFixed(2)} USD`,
-              Precio_Actual_Colones_BCCR: `${crcCurrent} (TC: ₡${bccrRate.venta.toFixed(2)})`,
-              Precio_Meta: `$${item.targetPriceUsd.toFixed(2)} USD (${crcTarget})`,
-              Tienda: item.storeName || 'Steam / eShop',
-              Enlace_Compra: item.productUrl || 'https://store.steampowered.com'
-            })
-          });
-
-          const formJson = await formRes.json().catch(() => ({}));
-          if (formRes.ok && (formJson.success === 'true' || formJson.success === true)) {
-            deliveryStatus = `✓ Correo enviado a ${item.destination} (Revisa Bandeja de Entrada o Spam)`;
-          } else {
-            deliveryStatus = `⚠ Revisa tu bandeja o Spam en ${item.destination} y pulsa "Activate Form" en el correo de FormSubmit para autorizar envíos`;
-          }
-        }
+        await fetch(DEFAULT_EMAIL_WEBHOOK, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            to: item.destination.trim(),
+            subject: emailSubject,
+            htmlBody: htmlContent
+          })
+        });
+        deliveryStatus = `✓ Correo enviado a ${item.destination}`;
       } catch {
-        deliveryStatus = `Error de red al contactar servidor de correo para ${item.destination}`;
+        deliveryStatus = `Error de red al enviar correo a ${item.destination}`;
       }
     }
 
@@ -685,6 +681,7 @@ export default function App() {
                       setSelectedGame(game);
                       setModalPlatform(selectedPlat);
                       setAlertTargetPrice((activePrice * 0.85).toFixed(2));
+                      setAlertValidationError('');
                     }}
                   >
                     <div className="card-image-wrap">
@@ -1014,10 +1011,10 @@ export default function App() {
             <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
               <div>
                 <h2 style={{ fontSize: '1.1rem', marginBottom: '0.25rem' }}>
-                  <Bell size={18} style={{ verticalAlign: 'middle' }} /> Lista de Deseos y Centro de Prueba de Alertas (Telegram / Correo)
+                  <Bell size={18} style={{ verticalAlign: 'middle' }} /> Lista de Deseos y Suscripciones de Alerta (Telegram / Correo)
                 </h2>
                 <p style={{ fontSize: '0.83rem', color: 'var(--text-secondary)' }}>
-                  Tus credenciales de Telegram (Chat ID <strong>{DEFAULT_TG_CHAT_ID}</strong>) y el envío HTTP de Correo están activos.
+                  Haz clic en cualquier juego del catálogo para registrar una alerta o utiliza el botón de prueba para disparar las notificaciones activas.
                 </p>
               </div>
 
@@ -1031,52 +1028,6 @@ export default function App() {
                   <Sparkles size={15} /> Simular Caída de Precio (Modo Prueba)
                 </button>
               )}
-            </div>
-
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-                gap: '0.75rem',
-                padding: '0.85rem 1rem',
-                marginBottom: '1.2rem',
-                background: 'var(--bg-primary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '8px'
-              }}
-            >
-              <div>
-                <div className="mono" style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginBottom: '0.3rem' }}>
-                  🤖 <strong>Telegram Bot Token (Precargado · Chat ID: {DEFAULT_TG_CHAT_ID}):</strong>
-                </div>
-                <input
-                  type="password"
-                  className="input-control mono"
-                  style={{ width: '100%', fontSize: '0.75rem' }}
-                  value={telegramBotToken}
-                  onChange={e => {
-                    setTelegramBotToken(e.target.value);
-                    localStorage.setItem('radar_tg_token', e.target.value);
-                  }}
-                />
-              </div>
-
-              <div>
-                <div className="mono" style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginBottom: '0.3rem' }}>
-                  <Mail size={12} style={{ verticalAlign: 'middle' }} /> <strong>Webhook Google Apps Script (Opcional · vacío usa FormSubmit):</strong>
-                </div>
-                <input
-                  type="text"
-                  className="input-control mono"
-                  style={{ width: '100%', fontSize: '0.75rem' }}
-                  placeholder="https://script.google.com/macros/s/.../exec (Opcional)"
-                  value={emailWebhookUrl}
-                  onChange={e => {
-                    setEmailWebhookUrl(e.target.value);
-                    localStorage.setItem('radar_email_webhook', e.target.value);
-                  }}
-                />
-              </div>
             </div>
 
             {wishlist.length === 0 ? (
@@ -1093,7 +1044,7 @@ export default function App() {
                     <th>Canal</th>
                     <th>Destino</th>
                     <th>Estado</th>
-                    <th>Acciones de Prueba</th>
+                    <th>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1247,33 +1198,55 @@ export default function App() {
             <h3 style={{ fontSize: '0.95rem', marginBottom: '0.5rem' }}>Historial de Precios Registrado por Tienda (USD)</h3>
             <PriceHistoryChart game={selectedGame} />
 
-            <form onSubmit={handleAddAlert} style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: 600 }}><Bell size={14} /> Recibir alerta cuando baje de ($ USD):</span>
-              <input
-                type="number"
-                step="0.01"
-                className="input-control mono"
-                style={{ width: '100px' }}
-                value={alertTargetPrice}
-                onChange={e => setAlertTargetPrice(e.target.value)}
-                required
-              />
-              <span className="mono" style={{ fontSize: '0.78rem', color: '#38BDF8' }}>
-                ({formatColones(alertTargetPrice, bccrRate.venta)})
-              </span>
-              <select className="input-control" value={alertChannel} onChange={e => handleChannelChange(e.target.value)}>
-                <option value="telegram">Telegram (Chat ID)</option>
-                <option value="email">Correo Electrónico</option>
-              </select>
-              <input
-                type="text"
-                className="input-control"
-                placeholder={alertChannel === 'telegram' ? '7016849983' : 'tu_correo@gmail.com'}
-                value={alertDestination}
-                onChange={e => setAlertDestination(e.target.value)}
-                required
-              />
-              <button type="submit" className="btn btn-active">Guardar y Probar Alerta</button>
+            <form
+              onSubmit={handleAddAlert}
+              noValidate
+              style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)' }}
+            >
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600 }}><Bell size={14} /> Recibir alerta cuando baje de ($ USD):</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  className="input-control mono"
+                  style={{ width: '100px' }}
+                  value={alertTargetPrice}
+                  onChange={e => {
+                    setAlertTargetPrice(e.target.value);
+                    setAlertValidationError('');
+                  }}
+                  required
+                />
+                <span className="mono" style={{ fontSize: '0.78rem', color: '#38BDF8' }}>
+                  ({formatColones(alertTargetPrice, bccrRate.venta)})
+                </span>
+                <select className="input-control" value={alertChannel} onChange={e => handleChannelChange(e.target.value)}>
+                  <option value="telegram">Telegram (Chat ID)</option>
+                  <option value="email">Correo Electrónico</option>
+                </select>
+                <input
+                  type={alertChannel === 'email' ? 'email' : 'text'}
+                  className="input-control"
+                  style={{
+                    borderColor: alertValidationError ? '#EF4444' : undefined
+                  }}
+                  placeholder={alertChannel === 'telegram' ? '7016849983' : 'usuario@dominio.com'}
+                  value={alertDestination}
+                  onChange={e => {
+                    setAlertDestination(e.target.value);
+                    setAlertValidationError('');
+                  }}
+                  required
+                />
+                <button type="submit" className="btn btn-active">Guardar y Probar Alerta</button>
+              </div>
+
+              {alertValidationError && (
+                <div className="mono" style={{ color: '#EF4444', fontSize: '0.76rem', marginTop: '0.5rem', fontWeight: 600 }}>
+                  ⚠ {alertValidationError}
+                </div>
+              )}
             </form>
           </div>
         </div>
