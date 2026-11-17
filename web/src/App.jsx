@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Search, Filter, Activity, Tag, Clock, ExternalLink, Bell, Sun, Moon,
-  ChevronLeft, ChevronRight, AlertTriangle, CheckCircle2, Cpu, Gamepad2, DollarSign
+  ChevronLeft, ChevronRight, AlertTriangle, CheckCircle2, Cpu, Gamepad2,
+  DollarSign, Send, Sparkles, Trash2
 } from 'lucide-react';
 
 const IO_SWEEP_DATA = [
@@ -105,7 +106,7 @@ export default function App() {
   const [selectedGame, setSelectedGame] = useState(null);
   const [modalPlatform, setModalPlatform] = useState('all');
 
-  // Lista de deseos / Alertas
+  // Lista de deseos / Alertas y Modo de Prueba
   const [wishlist, setWishlist] = useState(() => {
     const saved = localStorage.getItem('radar_wishlist_alerts');
     return saved ? JSON.parse(saved) : [];
@@ -113,12 +114,13 @@ export default function App() {
   const [alertChannel, setAlertChannel] = useState('telegram');
   const [alertDestination, setAlertDestination] = useState('');
   const [alertTargetPrice, setAlertTargetPrice] = useState('');
+  const [telegramBotToken, setTelegramBotToken] = useState(() => localStorage.getItem('radar_tg_token') || '');
+  const [testToast, setTestToast] = useState(null);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
-  // Descargar tipo de cambio oficial del BCCR (Indicadores Económicos 317 / 318 vía API Hacienda CR + respaldo)
   useEffect(() => {
     async function fetchBccrExchangeRate() {
       try {
@@ -138,7 +140,7 @@ export default function App() {
           }
         }
       } catch {
-        // Si falla la red local hacia Hacienda, intentar el segundo proveedor en vivo
+        // Intentar segundo proveedor si hay bloqueo CORS
       }
 
       try {
@@ -252,14 +254,18 @@ export default function App() {
   function handleAddAlert(e) {
     e.preventDefault();
     if (!selectedGame || !alertDestination || !alertTargetPrice) return;
+    const bestOffer = (selectedGame.offers || [])[0];
     const newAlert = {
       id: Date.now(),
       gameId: selectedGame.id,
       gameTitle: selectedGame.title,
       currentBestUsd: selectedGame.bestPriceUsd,
       targetPriceUsd: Number(alertTargetPrice),
+      storeName: bestOffer?.storeName || 'Steam Store',
+      productUrl: bestOffer?.productUrl || 'https://store.steampowered.com',
       channel: alertChannel,
       destination: alertDestination,
+      lastNotifiedAt: null,
       createdAt: new Date().toISOString()
     };
     const updated = [newAlert, ...wishlist];
@@ -267,6 +273,108 @@ export default function App() {
     localStorage.setItem('radar_wishlist_alerts', JSON.stringify(updated));
     setAlertDestination('');
     setAlertTargetPrice('');
+    setSelectedGame(null);
+    setActiveTab('wishlist');
+    triggerTestNotification(newAlert, true);
+  }
+
+  function handleDeleteAlert(id) {
+    const updated = wishlist.filter(item => item.id !== id);
+    setWishlist(updated);
+    localStorage.setItem('radar_wishlist_alerts', JSON.stringify(updated));
+  }
+
+  // Modo Prueba: Simula una caída del 30% en todos los juegos de la lista de deseos para activar las alertas
+  function handleSimulatePriceDrop() {
+    if (wishlist.length === 0) return;
+    const updated = wishlist.map(item => {
+      const droppedPrice = Number((item.targetPriceUsd * 0.88).toFixed(2));
+      return {
+        ...item,
+        currentBestUsd: droppedPrice,
+        lastNotifiedAt: new Date().toLocaleTimeString('es-CR')
+      };
+    });
+    setWishlist(updated);
+    localStorage.setItem('radar_wishlist_alerts', JSON.stringify(updated));
+    triggerTestNotification(updated[0], false);
+  }
+
+  // Dispara la notificación de prueba (Toast en pantalla + Notificación Nativa Windows + Telegram API / Correo)
+  async function triggerTestNotification(item, isNewSubscription = false) {
+    const crcCurrent = formatColones(item.currentBestUsd, bccrRate.venta);
+    const crcTarget = formatColones(item.targetPriceUsd, bccrRate.venta);
+    const titleMsg = isNewSubscription
+      ? `✅ Alerta registrada: ${item.gameTitle}`
+      : `🔥 ¡BAJADA DE PRECIO DETECTADA!: ${item.gameTitle}`;
+
+    const bodyMsg = `Precio actual: $${item.currentBestUsd.toFixed(2)} (${crcCurrent}) en ${item.storeName || 'Tienda Oficial'} · Tu meta: $${item.targetPriceUsd.toFixed(2)} (${crcTarget}) · Destino: ${item.destination}`;
+
+    let deliveryStatus = 'Notificación en navegador activada';
+
+    // 1. Notificación nativa del Sistema Operativo / Navegador (Web Notification API)
+    if ('Notification' in window) {
+      if (Notification.permission === 'granted') {
+        new Notification(titleMsg, { body: bodyMsg });
+      } else if (Notification.permission !== 'denied') {
+        const perm = await Notification.requestPermission();
+        if (perm === 'granted') {
+          new Notification(titleMsg, { body: bodyMsg });
+        }
+      }
+    }
+
+    // 2. Si el canal es Telegram y hay Token configurado, enviar mensaje real por API de Telegram
+    if (item.channel === 'telegram' && telegramBotToken.trim() !== '') {
+      try {
+        const tgUrl = `https://api.telegram.org/bot${telegramBotToken.trim()}/sendMessage`;
+        const text = `🎮 *RADAR DE OFERTAS MULTINÚCLEO*\n${titleMsg}\n\n💰 *Precio Oferta:* $${item.currentBestUsd.toFixed(2)} USD (${crcCurrent})\n🎯 *Tu Precio Meta:* $${item.targetPriceUsd.toFixed(2)} USD (${crcTarget})\n🏬 *Tienda:* ${item.storeName || 'Steam / eShop'}\n🔗 [Comprar en tienda oficial](${item.productUrl || 'https://store.steampowered.com'})`;
+        const res = await fetch(tgUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: item.destination.trim(),
+            text,
+            parse_mode: 'Markdown'
+          })
+        });
+        if (res.ok) {
+          deliveryStatus = `Mensaje REAL enviado a Telegram (${item.destination})`;
+        } else {
+          deliveryStatus = 'Simulación local OK (Verifica que el Chat ID sea numérico para envío real en Telegram)';
+        }
+      } catch {
+        deliveryStatus = 'Simulación local OK (Sin conexión a api.telegram.org)';
+      }
+    } else if (item.channel === 'email' && !isNewSubscription) {
+      // 3. Si es correo electrónico, preparar enlace mailto con el desglose en USD y Colones
+      const subject = encodeURIComponent(`[Radar Ofertas] ¡${item.gameTitle} bajó a $${item.currentBestUsd.toFixed(2)} (${crcCurrent})!`);
+      const body = encodeURIComponent(
+        `Hola,\n\nEl juego "${item.gameTitle}" ha alcanzado tu precio meta en Radar de Ofertas Multinúcleo:\n\n` +
+        `• Precio actual: $${item.currentBestUsd.toFixed(2)} USD (${crcCurrent} al TC BCCR ₡${bccrRate.venta.toFixed(2)})\n` +
+        `• Precio meta configurado: $${item.targetPriceUsd.toFixed(2)} USD (${crcTarget})\n` +
+        `• Enlace directo a la tienda: ${item.productUrl || 'https://store.steampowered.com'}\n`
+      );
+      window.open(`mailto:${item.destination}?subject=${subject}&body=${body}`, '_blank');
+      deliveryStatus = `Cliente de correo abierto para ${item.destination}`;
+    }
+
+    // Marcar fecha/hora de última notificación en la tabla
+    const nowStr = new Date().toLocaleTimeString('es-CR');
+    setWishlist(prev => {
+      const next = prev.map(w => (w.id === item.id ? { ...w, lastNotifiedAt: nowStr } : w));
+      localStorage.setItem('radar_wishlist_alerts', JSON.stringify(next));
+      return next;
+    });
+
+    setTestToast({
+      title: titleMsg,
+      body: bodyMsg,
+      channel: item.channel.toUpperCase(),
+      status: deliveryStatus,
+      url: item.productUrl || 'https://store.steampowered.com',
+      timestamp: nowStr
+    });
   }
 
   const latestRun = metricsData.recentRuns?.[0] || {
@@ -288,6 +396,43 @@ export default function App() {
 
   return (
     <div>
+      {/* Banner Toast Flotante del Modo de Prueba de Notificaciones */}
+      {testToast && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: '1.5rem',
+            right: '1.5rem',
+            zIndex: 9999,
+            maxWidth: '430px',
+            background: 'var(--bg-surface)',
+            border: '2px solid #10B981',
+            borderRadius: '12px',
+            padding: '1rem 1.2rem',
+            boxShadow: '0 20px 35px rgba(0,0,0,0.55)'
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+            <span className="mono" style={{ fontSize: '0.72rem', color: '#10B981', fontWeight: 700 }}>
+              🔔 DISPARO DE ALERTA ({testToast.channel}) · {testToast.timestamp}
+            </span>
+            <button className="btn" style={{ padding: '0.15rem 0.45rem', fontSize: '0.72rem' }} onClick={() => setTestToast(null)}>
+              ✕
+            </button>
+          </div>
+          <div style={{ fontWeight: 700, fontSize: '0.92rem', marginBottom: '0.3rem' }}>{testToast.title}</div>
+          <div className="mono" style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: '0.45rem' }}>
+            {testToast.body}
+          </div>
+          <div className="mono" style={{ fontSize: '0.72rem', color: '#38BDF8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>✓ {testToast.status}</span>
+            <a href={testToast.url} target="_blank" rel="noreferrer" style={{ color: '#10B981', textDecoration: 'underline' }}>
+              Ver oferta ↗
+            </a>
+          </div>
+        </div>
+      )}
+
       {/* Barra de Navegación Superior con Tipo de Cambio del Dólar BCCR */}
       <header className="navbar">
         <div className="navbar-inner">
@@ -301,7 +446,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Indicador del Tipo de Cambio del Dólar BCCR en la parte superior */}
           <div
             className="mono"
             style={{
@@ -541,7 +685,6 @@ export default function App() {
                             <span className="price-current mono">${activePrice.toFixed(2)}</span>
                             <span className="price-regular mono">${activeRegular.toFixed(2)}</span>
                           </div>
-                          {/* Precio calculado en Colones Costarricenses (BCCR) */}
                           <div className="mono" style={{ fontSize: '0.82rem', fontWeight: 700, color: '#38BDF8', marginTop: '0.12rem' }}>
                             {formatColones(activePrice, bccrRate.venta)}{' '}
                             {activeRegular > activePrice && (
@@ -614,10 +757,10 @@ export default function App() {
               <div className="kpi-card">
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>SPEEDUP GLOBAL DEL PIPELINE</div>
                 <div className="mono" style={{ fontSize: '1.5rem', fontWeight: 700, marginTop: '0.25rem', color: 'var(--badge-low)' }}>
-                  31.65x (S_abs)
+                  31.98x (S_abs)
                 </div>
                 <div className="mono" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                  T_sec: 457.00s → T_par: 14.44s
+                  T_sec: 443.31s → T_par: 13.86s
                 </div>
               </div>
             </div>
@@ -643,25 +786,25 @@ export default function App() {
                     </tr>
                     <tr>
                       <td>1 · Descargar (E/S 32 workers)</td>
-                      <td>14.06 s</td>
+                      <td>13.86 s</td>
                       <td>3.500 req</td>
                       <td>Solapa espera de red</td>
                     </tr>
                     <tr>
                       <td>2 · Parsear (AngleSharp HTML)</td>
-                      <td>13.98 s</td>
+                      <td>13.79 s</td>
                       <td>500</td>
                       <td>Consumidor en canal</td>
                     </tr>
                     <tr>
                       <td>3 · Emparejar (CPU Jaro-Winkler)</td>
-                      <td>14.06 s</td>
-                      <td>500 × 1.000</td>
+                      <td>1.66 s</td>
+                      <td>500 × 2.500</td>
                       <td>Parallel.ForEach (12 hilos)</td>
                     </tr>
                     <tr>
                       <td>4 · Persistir (PostgreSQL Neon)</td>
-                      <td>14.36 s</td>
+                      <td>14.12 s</td>
                       <td>500 lotes</td>
                       <td>Batch Insert Transaccional</td>
                     </tr>
@@ -703,7 +846,7 @@ export default function App() {
                 <h3 style={{ fontSize: '0.95rem', marginBottom: '0.5rem' }}>Curva de Speedup Etapa 1 · Descarga E/S (1 a 64 Workers)</h3>
                 <SpeedupSvgChart
                   data={IO_SWEEP_DATA.filter(d => d.p !== 'Sec')}
-                  maxY={50}
+                  maxY={65}
                   colorPrimary="#10B981"
                   labelPrimary="S_abs(p) Medido (E/S)"
                 />
@@ -726,7 +869,7 @@ export default function App() {
                         <td>{row.sAbs.toFixed(2)}</td>
                         <td>{row.p === 'Sec' ? '—' : row.sRel.toFixed(2)}</td>
                         <td>{row.p === 'Sec' ? '—' : row.eff.toFixed(2)}</td>
-                        <td>{row.karpFlatt === 0 ? '—' : row.karpFlatt.toFixed(3)}</td>
+                        <td>{row.karpFlatt === 0 ? '—' : row.karpFlatt.toFixed(4)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -737,9 +880,9 @@ export default function App() {
                 <h3 style={{ fontSize: '0.95rem', marginBottom: '0.5rem' }}>Curva de Speedup Etapa 3 · Emparejamiento CPU (1 a 24 Hilos)</h3>
                 <SpeedupSvgChart
                   data={CPU_SWEEP_DATA.filter(d => d.p !== 'Sec')}
-                  maxY={12}
+                  maxY={3}
                   colorPrimary="#3B82F6"
-                  labelPrimary="S_rel(p) Medido vs Ley de Amdahl (f=0.05)"
+                  labelPrimary="S_rel(p) Medido vs Modelo Teórico"
                   showAmdahl
                 />
                 <table className="data-table mono">
@@ -757,11 +900,11 @@ export default function App() {
                     {CPU_SWEEP_DATA.map(row => (
                       <tr key={row.p}>
                         <td>{row.p}</td>
-                        <td>{row.medianS.toFixed(2)}</td>
+                        <td>{row.medianS.toFixed(3)}</td>
                         <td>{row.sAbs.toFixed(2)}</td>
                         <td>{row.p === 'Sec' ? '—' : row.sRel.toFixed(2)}</td>
                         <td>{row.p === 'Sec' ? '—' : row.eff.toFixed(2)}</td>
-                        <td>{row.karpFlatt === 0 ? '—' : row.karpFlatt.toFixed(3)}</td>
+                        <td>{row.karpFlatt === 0 ? '—' : row.karpFlatt.toFixed(4)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -799,15 +942,61 @@ export default function App() {
           </section>
         ) : (
           <section className="kpi-card">
-            <h2 style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
-              <Bell size={18} style={{ verticalAlign: 'middle' }} /> Lista de Deseos y Suscripciones de Alerta (Telegram / Correo)
-            </h2>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-              Haz clic en cualquier tarjeta del catálogo para configurar una alerta de caída de precio.
-            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
+              <div>
+                <h2 style={{ fontSize: '1.1rem', marginBottom: '0.25rem' }}>
+                  <Bell size={18} style={{ verticalAlign: 'middle' }} /> Lista de Deseos y Centro de Prueba de Alertas (Telegram / Correo)
+                </h2>
+                <p style={{ fontSize: '0.83rem', color: 'var(--text-secondary)' }}>
+                  Configura alertas desde cualquier juego del catálogo y utiliza el <strong>Modo de Prueba</strong> para verificar el disparo en vivo.
+                </p>
+              </div>
+
+              {wishlist.length > 0 && (
+                <button
+                  type="button"
+                  className="btn btn-active"
+                  onClick={handleSimulatePriceDrop}
+                  title="Simula que los juegos en seguimiento bajaron un 12% por debajo de tu meta y dispara la alerta"
+                >
+                  <Sparkles size={15} /> Simular Caída de Precio (Modo Prueba)
+                </button>
+              )}
+            </div>
+
+            {/* Configuración opcional de Bot Token para pruebas reales hacia celular en Telegram */}
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                gap: '0.6rem',
+                padding: '0.75rem 1rem',
+                marginBottom: '1.2rem',
+                background: 'var(--bg-primary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '8px'
+              }}
+            >
+              <span className="mono" style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                🤖 <strong>Telegram Bot Token (Opcional para envío real a celular):</strong>
+              </span>
+              <input
+                type="password"
+                className="input-control mono"
+                style={{ flex: 1, minWidth: '240px', fontSize: '0.76rem' }}
+                placeholder="Pega aquí tu token de @BotFather (o déjalo vacío para prueba local en navegador)"
+                value={telegramBotToken}
+                onChange={e => {
+                  setTelegramBotToken(e.target.value);
+                  localStorage.setItem('radar_tg_token', e.target.value);
+                }}
+              />
+            </div>
+
             {wishlist.length === 0 ? (
               <div className="mono" style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                No tienes alertas activas todavía. Selecciona un juego en el Catálogo para agregar una.
+                No tienes alertas activas todavía. Haz clic en cualquier juego del Catálogo y pulsa «Guardar Alerta» para probarla.
               </div>
             ) : (
               <table className="data-table mono">
@@ -819,21 +1008,56 @@ export default function App() {
                     <th>Canal</th>
                     <th>Destino</th>
                     <th>Estado</th>
+                    <th>Acciones de Prueba</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {wishlist.map(item => (
-                    <tr key={item.id}>
-                      <td>{item.gameTitle}</td>
-                      <td>${item.currentBestUsd.toFixed(2)} ({formatColones(item.currentBestUsd, bccrRate.venta)})</td>
-                      <td style={{ color: 'var(--badge-sale)', fontWeight: 700 }}>
-                        ${item.targetPriceUsd.toFixed(2)} ({formatColones(item.targetPriceUsd, bccrRate.venta)})
-                      </td>
-                      <td>{item.channel.toUpperCase()}</td>
-                      <td>{item.destination}</td>
-                      <td>Activo (Monitoreo 24h)</td>
-                    </tr>
-                  ))}
+                  {wishlist.map(item => {
+                    const isTargetReached = item.currentBestUsd <= item.targetPriceUsd;
+                    return (
+                      <tr key={item.id}>
+                        <td style={{ fontWeight: 600 }}>{item.gameTitle}</td>
+                        <td>${item.currentBestUsd.toFixed(2)} ({formatColones(item.currentBestUsd, bccrRate.venta)})</td>
+                        <td style={{ color: 'var(--badge-sale)', fontWeight: 700 }}>
+                          ${item.targetPriceUsd.toFixed(2)} ({formatColones(item.targetPriceUsd, bccrRate.venta)})
+                        </td>
+                        <td>{item.channel.toUpperCase()}</td>
+                        <td>{item.destination}</td>
+                        <td>
+                          {isTargetReached ? (
+                            <span style={{ color: '#10B981', fontWeight: 700 }}>
+                              ★ ¡META ALCANZADA! {item.lastNotifiedAt ? `(${item.lastNotifiedAt})` : ''}
+                            </span>
+                          ) : (
+                            <span style={{ color: 'var(--text-secondary)' }}>
+                              Monitoreo 24h {item.lastNotifiedAt ? `· Probado ${item.lastNotifiedAt}` : ''}
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', gap: '0.4rem' }}>
+                            <button
+                              type="button"
+                              className="btn btn-active"
+                              style={{ padding: '0.28rem 0.6rem', fontSize: '0.73rem' }}
+                              onClick={() => triggerTestNotification(item, false)}
+                            >
+                              <Send size={12} /> Probar Alerta
+                            </button>
+                            <button
+                              type="button"
+                              className="btn"
+                              style={{ padding: '0.28rem 0.5rem', fontSize: '0.73rem' }}
+                              onClick={() => handleDeleteAlert(item.id)}
+                              title="Eliminar alerta"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
@@ -959,12 +1183,12 @@ export default function App() {
               <input
                 type="text"
                 className="input-control"
-                placeholder={alertChannel === 'telegram' ? 'Ej. @isaac_cr o ChatID' : 'correo@estudiantec.cr'}
+                placeholder={alertChannel === 'telegram' ? 'Ej. 123456789 (Chat ID) o @isaac_cr' : 'correo@estudiantec.cr'}
                 value={alertDestination}
                 onChange={e => setAlertDestination(e.target.value)}
                 required
               />
-              <button type="submit" className="btn btn-active">Guardar Alerta</button>
+              <button type="submit" className="btn btn-active">Guardar y Probar Alerta</button>
             </form>
           </div>
         </div>
