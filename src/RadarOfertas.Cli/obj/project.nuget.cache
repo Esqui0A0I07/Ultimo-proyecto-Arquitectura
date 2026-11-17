@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "jHIALIqWYIk=",
+  "dgSpecHash": "9f3jPmNuwOk=",
   "success": true,
   "projectFilePath": "C:\\Users\\isaac\\Desktop\\Ultimo proyecto Arquitectura\\src\\RadarOfertas.Cli\\RadarOfertas.Cli.csproj",
   "expectedPackageFiles": [
@@ -9,8 +9,7 @@
     "C:\\Users\\isaac\\.nuget\\packages\\microsoft.extensions.dependencyinjection.abstractions\\10.0.0\\microsoft.extensions.dependencyinjection.abstractions.10.0.0.nupkg.sha512",
     "C:\\Users\\isaac\\.nuget\\packages\\microsoft.extensions.logging.abstractions\\10.0.0\\microsoft.extensions.logging.abstractions.10.0.0.nupkg.sha512",
     "C:\\Users\\isaac\\.nuget\\packages\\npgsql\\10.0.3\\npgsql.10.0.3.nupkg.sha512",
-    "C:\\Users\\isaac\\.nuget\\packages\\sixlabors.imagesharp\\4.1.3\\sixlabors.imagesharp.4.1.3.nupkg.sha512",
-    "C:\\Users\\isaac\\.nuget\\packages\\system.io.hashing\\8.0.0\\system.io.hashing.8.0.0.nupkg.sha512"
+    "C:\\Users\\isaac\\.nuget\\packages\\sixlabors.imagesharp\\3.1.5\\sixlabors.imagesharp.3.1.5.nupkg.sha512"
   ],
   "logs": []
 }
