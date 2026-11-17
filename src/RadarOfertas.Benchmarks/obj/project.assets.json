@@ -79,15 +79,18 @@
           }
         }
       },
-      "SixLabors.ImageSharp/3.1.5": {
+      "SixLabors.ImageSharp/4.1.3": {
         "type": "package",
+        "dependencies": {
+          "System.IO.Hashing": "8.0.0"
+        },
         "compile": {
-          "lib/net6.0/SixLabors.ImageSharp.dll": {
+          "lib/net8.0/SixLabors.ImageSharp.dll": {
             "related": ".xml"
           }
         },
         "runtime": {
-          "lib/net6.0/SixLabors.ImageSharp.dll": {
+          "lib/net8.0/SixLabors.ImageSharp.dll": {
             "related": ".xml"
           }
         },
@@ -95,11 +98,27 @@
           "build/_._": {}
         }
       },
+      "System.IO.Hashing/8.0.0": {
+        "type": "package",
+        "compile": {
+          "lib/net8.0/System.IO.Hashing.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/System.IO.Hashing.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
+        }
+      },
       "RadarOfertas.Core/1.0.0": {
         "type": "project",
         "framework": ".NETCoreApp,Version=v10.0",
         "dependencies": {
-          "SixLabors.ImageSharp": "3.1.5"
+          "SixLabors.ImageSharp": "4.1.3"
         },
         "compile": {
           "bin/placeholder/RadarOfertas.Core.dll": {}
@@ -321,20 +340,54 @@
         "postgresql.png"
       ]
     },
-    "SixLabors.ImageSharp/3.1.5": {
-      "sha512": "lNtlq7dSI/QEbYey+A0xn48z5w4XHSffF8222cC4F4YwTXfEImuiBavQcWjr49LThT/pRmtWJRcqA/PlL+eJ6g==",
+    "SixLabors.ImageSharp/4.1.3": {
+      "sha512": "VzzKPgdC0ZupEg937iKpg2cEGXudnFyQRwiHfIvtCKSlFUaxVbLjW3AztDhyk06z+4NzD7IAlMf7fqU57WXyBQ==",
       "type": "package",
-      "path": "sixlabors.imagesharp/3.1.5",
+      "path": "sixlabors.imagesharp/4.1.3",
       "files": [
         ".nupkg.metadata",
         ".signature.p7s",
         "LICENSE",
         "build/SixLabors.ImageSharp.props",
-        "lib/net6.0/SixLabors.ImageSharp.dll",
-        "lib/net6.0/SixLabors.ImageSharp.xml",
+        "build/SixLabors.ImageSharp.targets",
+        "build/net472/SixLabors.Licensing.dll",
+        "build/net6.0/SixLabors.Licensing.dll",
+        "build/net8.0/SixLabors.Licensing.dll",
+        "lib/net8.0/SixLabors.ImageSharp.dll",
+        "lib/net8.0/SixLabors.ImageSharp.xml",
         "sixlabors.imagesharp.128.png",
-        "sixlabors.imagesharp.3.1.5.nupkg.sha512",
+        "sixlabors.imagesharp.4.1.3.nupkg.sha512",
         "sixlabors.imagesharp.nuspec"
+      ]
+    },
+    "System.IO.Hashing/8.0.0": {
+      "sha512": "ne1843evDugl0md7Fjzy6QjJrzsjh46ZKbhf8GwBXb5f/gw97J4bxMs0NQKifDuThh/f0bZ0e62NPl1jzTuRqA==",
+      "type": "package",
+      "path": "system.io.hashing/8.0.0",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "Icon.png",
+        "LICENSE.TXT",
+        "PACKAGE.md",
+        "THIRD-PARTY-NOTICES.TXT",
+        "buildTransitive/net461/System.IO.Hashing.targets",
+        "buildTransitive/net462/_._",
+        "buildTransitive/net6.0/_._",
+        "buildTransitive/netcoreapp2.0/System.IO.Hashing.targets",
+        "lib/net462/System.IO.Hashing.dll",
+        "lib/net462/System.IO.Hashing.xml",
+        "lib/net6.0/System.IO.Hashing.dll",
+        "lib/net6.0/System.IO.Hashing.xml",
+        "lib/net7.0/System.IO.Hashing.dll",
+        "lib/net7.0/System.IO.Hashing.xml",
+        "lib/net8.0/System.IO.Hashing.dll",
+        "lib/net8.0/System.IO.Hashing.xml",
+        "lib/netstandard2.0/System.IO.Hashing.dll",
+        "lib/netstandard2.0/System.IO.Hashing.xml",
+        "system.io.hashing.8.0.0.nupkg.sha512",
+        "system.io.hashing.nuspec",
+        "useSharedDesignerContext.txt"
       ]
     },
     "RadarOfertas.Core/1.0.0": {
@@ -411,6 +464,12 @@
         }
       },
       "warningProperties": {
+        "noWarn": [
+          "NU1901",
+          "NU1902",
+          "NU1903",
+          "NU1904"
+        ],
         "warnAsError": [
           "NU1605"
         ]
@@ -719,87 +778,5 @@
         }
       }
     }
-  },
-  "logs": [
-    {
-      "code": "NU1903",
-      "level": "Warning",
-      "warningLevel": 1,
-      "message": "Package 'SixLabors.ImageSharp' 3.1.5 has a known high severity vulnerability, https://github.com/advisories/GHSA-2cmq-823j-5qj8",
-      "libraryId": "SixLabors.ImageSharp",
-      "targetGraphs": [
-        "net10.0"
-      ]
-    },
-    {
-      "code": "NU1902",
-      "level": "Warning",
-      "warningLevel": 1,
-      "message": "Package 'SixLabors.ImageSharp' 3.1.5 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-gwg2-r3hj-4w44",
-      "libraryId": "SixLabors.ImageSharp",
-      "targetGraphs": [
-        "net10.0"
-      ]
-    },
-    {
-      "code": "NU1903",
-      "level": "Warning",
-      "warningLevel": 1,
-      "message": "Package 'SixLabors.ImageSharp' 3.1.5 has a known high severity vulnerability, https://github.com/advisories/GHSA-j3p4-wp97-rph4",
-      "libraryId": "SixLabors.ImageSharp",
-      "targetGraphs": [
-        "net10.0"
-      ]
-    },
-    {
-      "code": "NU1903",
-      "level": "Warning",
-      "warningLevel": 1,
-      "message": "Package 'SixLabors.ImageSharp' 3.1.5 has a known high severity vulnerability, https://github.com/advisories/GHSA-j9gm-c75j-xc9q",
-      "libraryId": "SixLabors.ImageSharp",
-      "targetGraphs": [
-        "net10.0"
-      ]
-    },
-    {
-      "code": "NU1903",
-      "level": "Warning",
-      "warningLevel": 1,
-      "message": "Package 'SixLabors.ImageSharp' 3.1.5 has a known high severity vulnerability, https://github.com/advisories/GHSA-jjfr-hcj7-qf5w",
-      "libraryId": "SixLabors.ImageSharp",
-      "targetGraphs": [
-        "net10.0"
-      ]
-    },
-    {
-      "code": "NU1902",
-      "level": "Warning",
-      "warningLevel": 1,
-      "message": "Package 'SixLabors.ImageSharp' 3.1.5 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-rxmq-m78w-7wmc",
-      "libraryId": "SixLabors.ImageSharp",
-      "targetGraphs": [
-        "net10.0"
-      ]
-    },
-    {
-      "code": "NU1903",
-      "level": "Warning",
-      "warningLevel": 1,
-      "message": "Package 'SixLabors.ImageSharp' 3.1.5 has a known high severity vulnerability, https://github.com/advisories/GHSA-v76p-62qx-wwq2",
-      "libraryId": "SixLabors.ImageSharp",
-      "targetGraphs": [
-        "net10.0"
-      ]
-    },
-    {
-      "code": "NU1902",
-      "level": "Warning",
-      "warningLevel": 1,
-      "message": "Package 'SixLabors.ImageSharp' 3.1.5 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-wmxv-xphr-5c9g",
-      "libraryId": "SixLabors.ImageSharp",
-      "targetGraphs": [
-        "net10.0"
-      ]
-    }
-  ]
+  }
 }

@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -13,7 +12,6 @@ public static partial class LiveStoreScraper
 {
     private static readonly HtmlParser HtmlParser = new();
 
-    // Claves públicas de solo lectura del front-end oficial de Nintendo eShop US (Algolia)
     private const string NintendoAlgoliaUrl = "https://u3b6gr4ua3-dsn.algolia.net/1/indexes/*/queries";
     private const string NintendoAlgoliaAppId = "U3B6GR4UA3";
     private const string NintendoAlgoliaApiKey = "a29c6927638bfd8cee23993e51e721c9";
@@ -73,10 +71,6 @@ public static partial class LiveStoreScraper
         }
     }
 
-    /// <summary>
-    /// 1. PC (Steam): Extrae precio real en USD, precio original, portada y URL desde Steam US.
-    /// Primero intenta por HTML DOM con AngleSharp y respalda con la API pública storesearch de Steam.
-    /// </summary>
     private static async Task<StoreCandidate?> FetchSteamRealOfferAsync(
         HttpClient http,
         GameTarget game,
@@ -84,7 +78,6 @@ public static partial class LiveStoreScraper
     {
         string cleanQuery = CleanSearchTitle(game.CanonicalTitle);
 
-        // Intento A: API pública de búsqueda de la tienda Steam (devuelve precios exactos en centavos de USD y AppID)
         string apiUrl = $"https://store.steampowered.com/api/storesearch/?term={Uri.EscapeDataString(cleanQuery)}&l=english&cc=US";
         using (var resp = await http.GetAsync(apiUrl, ct))
         {
@@ -110,7 +103,7 @@ public static partial class LiveStoreScraper
                             if (finalUsd <= 0) continue;
 
                             int appId = item.GetProperty("id").GetInt32();
-                            string coverUrl = $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg";
+                            string coverUrl = $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg";
                             string productUrl = $"https://store.steampowered.com/app/{appId}";
 
                             return new StoreCandidate(
@@ -127,7 +120,6 @@ public static partial class LiveStoreScraper
             }
         }
 
-        // Intento B: Scraping HTML directo con AngleSharp sobre la página de resultados de Steam
         string htmlUrl = $"https://store.steampowered.com/search/results/?term={Uri.EscapeDataString(cleanQuery)}&cc=us&l=english&category1=998";
         string html = await http.GetStringAsync(htmlUrl, ct);
         using var htmlDoc = await HtmlParser.ParseDocumentAsync(html, ct);
@@ -163,9 +155,6 @@ public static partial class LiveStoreScraper
             imgUrl);
     }
 
-    /// <summary>
-    /// 2. Xbox (Microsoft Store): Consulta DisplayCatalog de Microsoft US para obtener ListPrice y MSRP reales.
-    /// </summary>
     private static async Task<StoreCandidate?> FetchXboxRealOfferAsync(
         HttpClient http,
         GameTarget game,
@@ -223,6 +212,28 @@ public static partial class LiveStoreScraper
             return null;
 
         var product = prodArray[0];
+
+        // Extraer imagen oficial del juego desde LocalizedProperties de Xbox
+        string? xboxCoverUrl = null;
+        if (product.TryGetProperty("LocalizedProperties", out var locProps) &&
+            locProps.GetArrayLength() > 0 &&
+            locProps[0].TryGetProperty("Images", out var imagesArr))
+        {
+            foreach (var img in imagesArr.EnumerateArray())
+            {
+                string purpose = img.TryGetProperty("ImagePurpose", out var ip) ? (ip.GetString() ?? "") : "";
+                string uri = img.TryGetProperty("Uri", out var u) ? (u.GetString() ?? "") : "";
+                if (!string.IsNullOrWhiteSpace(uri) &&
+                    (purpose.Equals("SuperHeroArt", StringComparison.OrdinalIgnoreCase) ||
+                     purpose.Equals("TitledHeroArt", StringComparison.OrdinalIgnoreCase) ||
+                     purpose.Equals("BoxArt", StringComparison.OrdinalIgnoreCase)))
+                {
+                    xboxCoverUrl = uri.StartsWith("//") ? $"https:{uri}?w=460" : uri;
+                    break;
+                }
+            }
+        }
+
         if (!product.TryGetProperty("DisplaySkuAvailabilities", out var skuArray))
             return null;
 
@@ -248,7 +259,7 @@ public static partial class LiveStoreScraper
                             regular,
                             "digital",
                             productUrl,
-                            null);
+                            xboxCoverUrl);
                     }
                 }
             }
@@ -257,9 +268,6 @@ public static partial class LiveStoreScraper
         return null;
     }
 
-    /// <summary>
-    /// 3. Nintendo Switch (Nintendo eShop US): Consulta el índice oficial Algolia de Nintendo US (store_game_en_us).
-    /// </summary>
     private static async Task<StoreCandidate?> FetchNintendoEshopRealOfferAsync(
         HttpClient http,
         GameTarget game,
@@ -332,6 +340,18 @@ public static partial class LiveStoreScraper
                             ? urlSlug
                             : $"https://www.nintendo.com{urlSlug}";
 
+                        string? coverImg = null;
+                        if (hit.TryGetProperty("productImage", out var pi) && pi.ValueKind == JsonValueKind.String)
+                        {
+                            string rawImg = pi.GetString() ?? "";
+                            if (!string.IsNullOrWhiteSpace(rawImg))
+                            {
+                                coverImg = rawImg.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                                    ? rawImg
+                                    : $"https://assets.nintendo.com/image/upload/ar_16:9,c_lpad,w_656/b_white/f_auto/q_auto/{rawImg.TrimStart('/')}";
+                            }
+                        }
+
                         return new StoreCandidate(
                             "eshop",
                             title,
@@ -339,55 +359,20 @@ public static partial class LiveStoreScraper
                             msrp,
                             "digital",
                             fullUrl,
-                            null);
+                            coverImg);
                     }
                 }
             }
         }
 
-        // Respaldo por Scraping HTML en DekuDeals si Algolia no devuelve ese título específico
         return await FetchDekuDealsHtmlOfferAsync(http, game, "eshop", "digital", ct);
     }
 
-    /// <summary>
-    /// 4. PlayStation / Minorista Físico (GameStop): Scraping HTML de PlayStation Store US y DekuDeals.
-    /// </summary>
     private static async Task<StoreCandidate?> FetchPlayStationAndRetailRealOfferAsync(
         HttpClient http,
         GameTarget game,
         CancellationToken ct)
     {
-        string cleanQuery = CleanSearchTitle(game.CanonicalTitle);
-        string psUrl = $"https://store.playstation.com/en-us/search/{Uri.EscapeDataString(cleanQuery)}";
-
-        try
-        {
-            string html = await http.GetStringAsync(psUrl, ct);
-            using var doc = await HtmlParser.ParseDocumentAsync(html, ct);
-
-            // Extraer desde el árbol DOM de PlayStation Store US
-            var priceNodes = doc.QuerySelectorAll("[data-qa*='price'], span.psw-m-r-3");
-            foreach (var node in priceNodes)
-            {
-                var m = UsdPriceRegex().Match(node.TextContent);
-                if (m.Success && decimal.TryParse(m.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out decimal psPrice) && psPrice > 0)
-                {
-                    return new StoreCandidate(
-                        "gamestop",
-                        game.CanonicalTitle,
-                        psPrice,
-                        Math.Max(psPrice, game.MsrpUsd),
-                        "physical",
-                        psUrl,
-                        null);
-                }
-            }
-        }
-        catch
-        {
-            // Continuar con DekuDeals HTML si PlayStation Store limita la consulta
-        }
-
         return await FetchDekuDealsHtmlOfferAsync(http, game, "gamestop", "physical", ct);
     }
 
@@ -436,7 +421,9 @@ public static partial class LiveStoreScraper
                     ? href
                     : $"https://www.dekudeals.com{href}";
 
-                return new StoreCandidate(storeCode, title, curPrice, regPrice, format, prodUrl, null);
+                string? imgUrl = card.QuerySelector("img")?.GetAttribute("src");
+
+                return new StoreCandidate(storeCode, title, curPrice, regPrice, format, prodUrl, imgUrl);
             }
         }
 
