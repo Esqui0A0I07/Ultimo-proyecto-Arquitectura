@@ -169,6 +169,12 @@ public sealed class PostgresGameRepository
         await conn.OpenAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
 
+        // Limpiar catálogo anterior para evitar juegos duplicados o con sufijos sintéticos "Chapter"
+        await conn.ExecuteAsync(new CommandDefinition(
+            "TRUNCATE TABLE games RESTART IDENTITY CASCADE;",
+            transaction: tx,
+            cancellationToken: ct));
+
         const string sql = """
             INSERT INTO games (canonical_title, normalized_title, msrp_usd, platforms, is_hard_case)
             VALUES (@CanonicalTitle, @NormalizedTitle, @MsrpUsd, @Platforms, @IsHardCase)

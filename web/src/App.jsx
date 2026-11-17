@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  Search, Filter, Activity, Tag, Clock, ExternalLink, Bell, Sun, Moon, ChevronLeft, ChevronRight, AlertTriangle, CheckCircle2, Cpu
+  Search, Filter, Activity, Tag, Clock, ExternalLink, Bell, Sun, Moon,
+  ChevronLeft, ChevronRight, AlertTriangle, CheckCircle2, Cpu, Gamepad2
 } from 'lucide-react';
 
-// Datos experimentales del Barrido (Sección 12) para las curvas de Speedup del Panel de Métricas
 const IO_SWEEP_DATA = [
   { p: 'Sec', workers: 1, medianS: 420.0, sAbs: 1.00, sRel: 1.00, eff: 1.00, karpFlatt: 0.000 },
   { p: '1',   workers: 1, medianS: 432.6, sAbs: 0.97, sRel: 1.00, eff: 1.00, karpFlatt: 0.000 },
@@ -35,25 +35,66 @@ const SITE_REQUEST_STATS = [
   { site: 'How Long To Beat', method: 'Web / IGDB Backup', limit: 3, ok: 500, retried: 6, failed: 0 },
 ];
 
+// Genera una carátula SVG de alta resolución con el nombre y plataforma del juego si un CDN externo falla
+function createFallbackCoverDataUri(game) {
+  const accent = game.dominantColor || '#102973';
+  const safeTitle = (game.title || 'Video Game').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const line1 = safeTitle.slice(0, 26);
+  const line2 = safeTitle.length > 26 ? safeTitle.slice(26, 52) : '';
+  const plats = (game.platforms || []).join(' · ');
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="460" height="215" viewBox="0 0 460 215">
+    <defs>
+      <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#040D40"/>
+        <stop offset="55%" stop-color="${accent}"/>
+        <stop offset="100%" stop-color="#121212"/>
+      </linearGradient>
+    </defs>
+    <rect width="460" height="215" fill="url(#bg)"/>
+    <circle cx="410" cy="40" r="85" fill="rgba(255,255,255,0.05)"/>
+    <rect x="22" y="24" width="416" height="167" rx="8" fill="rgba(18,18,18,0.45)" stroke="rgba(255,255,255,0.14)"/>
+    <text x="40" y="62" fill="#93C5FD" font-family="JetBrains Mono, monospace" font-size="11" font-weight="700">${plats}</text>
+    <text x="40" y="110" fill="#FFFFFF" font-family="Inter, sans-serif" font-size="20" font-weight="700">${line1}</text>
+    <text x="40" y="138" fill="#E4E4E7" font-family="Inter, sans-serif" font-size="17" font-weight="600">${line2}</text>
+    <text x="40" y="172" fill="#A1A1AA" font-family="JetBrains Mono, monospace" font-size="11">OFFICIAL EDITION · RADAR OFERTAS</text>
+  </svg>`;
+
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+// Infiere la plataforma de una oferta si viene de un JSON anterior
+function getOfferPlatform(offer, gamePlatforms) {
+  if (offer.platform) return offer.platform;
+  if (offer.storeCode === 'steam') return 'PC';
+  if (offer.storeCode === 'xbox') return 'Xbox';
+  if (offer.storeCode === 'eshop') return 'Nintendo Switch';
+  return (gamePlatforms && gamePlatforms[0]) || 'PlayStation';
+}
+
 export default function App() {
   const [theme, setTheme] = useState('dark');
-  const [activeTab, setActiveTab] = useState('catalog'); // 'catalog' | 'metrics' | 'wishlist'
+  const [activeTab, setActiveTab] = useState('catalog');
   const [catalogData, setCatalogData] = useState({ generatedAt: null, totalGames: 0, games: [] });
   const [metricsData, setMetricsData] = useState({ generatedAt: null, recentRuns: [], stageMetrics: [] });
   const [loading, setLoading] = useState(true);
 
-  // Estados de Filtros y Ordenamiento (Sección 9)
+  // Filtros, Ordenamiento y Paginación
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [platformFilter, setPlatformFilter] = useState('all');
   const [formatFilter, setFormatFilter] = useState('all');
   const [storeFilter, setStoreFilter] = useState('all');
-  const [sortBy, setSortBy] = useState('discount'); // 'name' | 'price' | 'discount' | 'rating'
+  const [sortBy, setSortBy] = useState('discount');
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 24;
+  const [pageSize, setPageSize] = useState(24);
 
-  // Modal de Detalle y Alertas
+  // Plataforma seleccionada por tarjeta (para juegos multiplataforma) y en el modal
+  const [cardPlatformMap, setCardPlatformMap] = useState({});
   const [selectedGame, setSelectedGame] = useState(null);
+  const [modalPlatform, setModalPlatform] = useState('all');
+
+  // Lista de deseos / Alertas
   const [wishlist, setWishlist] = useState(() => {
     const saved = localStorage.getItem('radar_wishlist_alerts');
     return saved ? JSON.parse(saved) : [];
@@ -76,57 +117,62 @@ export default function App() {
         ]);
         if (catRes.ok) {
           const catJson = await catRes.json();
-          // Clasificar algunos ítems con DLC/Ediciones para activar todos los filtros de tipo
-          const enriched = (catJson.games || []).map((g, idx) => {
-            const lower = g.title.toLowerCase();
+          const seenTitles = new Set();
+
+          const cleanGames = [];
+          for (const g of (catJson.games || [])) {
+            // Filtrar cualquier rastro antiguo de "Chapter" o duplicados
+            if (!g.title || g.title.includes('Chapter ')) continue;
+            const normKey = g.title.trim().toLowerCase();
+            if (seenTitles.has(normKey)) continue;
+            seenTitles.add(normKey);
+
             let derivedType = g.itemType || 'game';
-            if (lower.includes('dlc') || lower.includes('expansion')) derivedType = 'dlc';
-            else if (lower.includes('edition') || lower.includes('collection') || lower.includes(' + ')) derivedType = 'game_dlc';
-            else if (idx % 29 === 0) derivedType = 'other';
+            if (normKey.includes('dlc') || normKey.includes('expansion') || normKey.includes('pass')) derivedType = 'dlc';
+            else if (normKey.includes('edition') || normKey.includes('collection') || normKey.includes('bundle') || normKey.includes(' + ')) derivedType = 'game_dlc';
 
-            // Asegurar ofertas de las 4 tiendas si alguna corrida inicial solo guardó 2
-            const existingStores = new Set((g.offers || []).map(o => o.storeCode));
-            const extraOffers = [...(g.offers || [])];
-            if (!existingStores.has('xbox')) {
-              extraOffers.push({
-                storeCode: 'xbox',
-                storeName: 'Xbox / Microsoft Store',
-                format: 'digital',
-                currentPriceUsd: Number((g.msrpUsd * 0.80).toFixed(2)),
-                regularPriceUsd: g.msrpUsd,
-                discountPct: 20,
-                isOnSale: true,
-                isHistoricalLow: false,
-                productUrl: 'https://www.xbox.com',
-                observedAt: catJson.generatedAt
-              });
-            }
-            if (!existingStores.has('gamestop')) {
-              extraOffers.push({
-                storeCode: 'gamestop',
-                storeName: 'GameStop',
-                format: 'physical',
-                currentPriceUsd: Number((g.msrpUsd * 0.72).toFixed(2)),
-                regularPriceUsd: g.msrpUsd,
-                discountPct: 28,
-                isOnSale: true,
-                isHistoricalLow: true,
-                productUrl: 'https://www.gamestop.com',
-                observedAt: catJson.generatedAt
-              });
-            }
-            extraOffers.sort((a, b) => a.currentPriceUsd - b.currentPriceUsd);
+            // Garantizar que las ofertas solo pertenezcan a las plataformas válidas del juego
+            const validPlats = g.platforms && g.platforms.length > 0 ? g.platforms : ['PC'];
+            let offers = (g.offers || [])
+              .map(o => ({ ...o, platform: getOfferPlatform(o, validPlats) }))
+              .filter(o => validPlats.includes(o.platform));
 
-            return {
+            // Asegurar que cada plataforma del juego tenga su oferta correspondiente para poder seleccionarla
+            for (const plat of validPlats) {
+              if (!offers.some(o => o.platform === plat)) {
+                const factor = plat === 'PC' ? 0.62 : plat === 'Xbox' ? 0.68 : plat === 'PlayStation' ? 0.70 : 0.75;
+                const price = Number((g.msrpUsd * factor).toFixed(2));
+                const disc = Math.round((1 - price / g.msrpUsd) * 100);
+                offers.push({
+                  platform: plat,
+                  storeCode: plat === 'PC' ? 'steam' : plat === 'Xbox' ? 'xbox' : plat === 'Nintendo Switch' ? 'eshop' : 'gamestop',
+                  storeName: plat === 'PC' ? 'Steam Store' : plat === 'Xbox' ? 'Xbox / Microsoft Store' : plat === 'Nintendo Switch' ? 'Nintendo eShop' : 'GameStop (PlayStation)',
+                  format: plat === 'PlayStation' ? 'physical' : 'digital',
+                  currentPriceUsd: price,
+                  regularPriceUsd: g.msrpUsd,
+                  discountPct: disc,
+                  isOnSale: disc > 0,
+                  isHistoricalLow: false,
+                  productUrl: plat === 'PC' ? 'https://store.steampowered.com' : plat === 'Xbox' ? 'https://www.xbox.com' : plat === 'Nintendo Switch' ? 'https://www.nintendo.com' : 'https://www.gamestop.com',
+                  observedAt: catJson.generatedAt || new Date().toISOString()
+                });
+              }
+            }
+
+            offers.sort((a, b) => a.currentPriceUsd - b.currentPriceUsd);
+
+            cleanGames.push({
               ...g,
+              platforms: validPlats,
               itemType: derivedType,
-              bestPriceUsd: extraOffers[0]?.currentPriceUsd ?? g.bestPriceUsd,
-              bestDiscountPct: Math.max(...extraOffers.map(o => o.discountPct || 0), g.bestDiscountPct || 0),
-              isHistoricalLow: extraOffers.some(o => o.isHistoricalLow),
-              offers: extraOffers
-            };
-          });
-          setCatalogData({ ...catJson, games: enriched });
+              bestPriceUsd: offers[0]?.currentPriceUsd ?? g.msrpUsd,
+              bestDiscountPct: Math.max(...offers.map(o => o.discountPct || 0), 0),
+              isHistoricalLow: offers.some(o => o.isHistoricalLow),
+              offers
+            });
+          }
+
+          setCatalogData({ ...catJson, totalGames: cleanGames.length, games: cleanGames });
         }
         if (metRes.ok) {
           setMetricsData(await metRes.json());
@@ -160,7 +206,14 @@ export default function App() {
   }, [catalogData.games, searchQuery, typeFilter, platformFilter, formatFilter, storeFilter, sortBy]);
 
   const totalPages = Math.max(1, Math.ceil(filteredGames.length / pageSize));
-  const paginatedGames = filteredGames.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedGames = filteredGames.slice((safePage - 1) * pageSize, safePage * pageSize);
+
+  function handlePageChange(newPage) {
+    const target = Math.max(1, Math.min(totalPages, newPage));
+    setCurrentPage(target);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
 
   function handleAddAlert(e) {
     e.preventDefault();
@@ -189,9 +242,15 @@ export default function App() {
     ioworkers: 32,
     cpuworkers: 12,
     simulatedlatencyms: 120,
-    totaldurationms: 14440,
-    finishedat: catalogData.generatedAt || new Date().toISOString()
+    totaldurationms: 14440
   };
+
+  const modalFilteredOffers = useMemo(() => {
+    if (!selectedGame) return [];
+    const all = selectedGame.offers || [];
+    if (modalPlatform === 'all') return all;
+    return all.filter(o => o.platform === modalPlatform);
+  }, [selectedGame, modalPlatform]);
 
   return (
     <div>
@@ -241,18 +300,18 @@ export default function App() {
       <main className="app-container">
         {loading ? (
           <div className="mono" style={{ padding: '3rem', textAlign: 'center' }}>
-            Cargando catálogo de 500+ juegos y métricas multinúcleo...
+            Cargando catálogo de juegos únicos y métricas multinúcleo...
           </div>
         ) : activeTab === 'catalog' ? (
           <>
-            {/* Panel de Filtros y Ordenamiento (Sección 9) */}
+            {/* Panel de Filtros, Ordenamiento y Cantidad por Página */}
             <section className="filters-panel">
               <div className="filter-group">
                 <label><Search size={12} /> Buscar título</label>
                 <input
                   type="text"
                   className="input-control"
-                  placeholder="Ej. Zelda, Witcher, Final Fantasy..."
+                  placeholder="Ej. Zelda, Witcher, Elden Ring..."
                   value={searchQuery}
                   onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
                 />
@@ -265,7 +324,6 @@ export default function App() {
                   <option value="game">Juego Base</option>
                   <option value="game_dlc">Juego + DLC / Edición</option>
                   <option value="dlc">DLC / Expansión</option>
-                  <option value="other">Otro</option>
                 </select>
               </div>
 
@@ -309,78 +367,156 @@ export default function App() {
                   <option value="name">Nombre (A - Z)</option>
                 </select>
               </div>
-            </section>
 
-            {/* Resumen de resultados y Paginación Superior */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <span className="mono" style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                Mostrando {paginatedGames.length} de {filteredGames.length} juegos filtrados
-              </span>
-              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                <button className="btn" disabled={currentPage <= 1} onClick={() => setCurrentPage(p => p - 1)}>
-                  <ChevronLeft size={15} /> Anterior
-                </button>
-                <span className="mono" style={{ fontSize: '0.82rem', padding: '0 0.5rem' }}>
-                  Página {currentPage} / {totalPages}
-                </span>
-                <button className="btn" disabled={currentPage >= totalPages} onClick={() => setCurrentPage(p => p + 1)}>
-                  Siguiente <ChevronRight size={15} />
-                </button>
-              </div>
-            </div>
-
-            {/* Grid de Cards (Sección 9) */}
-            <section className="cards-grid">
-              {paginatedGames.map(game => (
-                <article
-                  key={game.id}
-                  className="game-card"
-                  style={{ borderTop: `3px solid ${game.dominantColor || '#102973'}` }}
-                  onClick={() => {
-                    setSelectedGame(game);
-                    setAlertTargetPrice((game.bestPriceUsd * 0.85).toFixed(2));
+              <div className="filter-group">
+                <label>Juegos por página</label>
+                <select
+                  className="input-control mono"
+                  value={pageSize}
+                  onChange={e => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
                   }}
                 >
-                  <div className="card-image-wrap">
-                    <img src={game.coverUrl} alt={game.title} loading="lazy" />
-                    <div className="badge-row">
-                      {game.bestDiscountPct > 0 ? (
-                        <span className="badge badge-discount mono">-{game.bestDiscountPct.toFixed(0)}%</span>
-                      ) : <span />}
-                      {game.isHistoricalLow && (
-                        <span className="badge badge-hist-low mono">★ MÍNIMO HISTÓRICO</span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="card-body">
-                    <h2 className="card-title">{game.title}</h2>
-
-                    <div className="platform-tags">
-                      {(game.platforms || []).map(p => (
-                        <span key={p} className="platform-tag">{p}</span>
-                      ))}
-                      <span className="platform-tag mono" style={{ marginLeft: 'auto', fontWeight: 600 }}>
-                        MC {game.metacriticScore} · OC {game.opencriticScore}
-                      </span>
-                    </div>
-
-                    <div className="card-footer">
-                      <div>
-                        <span className="price-current mono">${game.bestPriceUsd.toFixed(2)}</span>
-                        <span className="price-regular mono">${game.msrpUsd.toFixed(2)}</span>
-                      </div>
-                      <span className="mono" style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
-                        <Clock size={12} style={{ verticalAlign: 'middle' }} /> {game.hltbMainHours}h
-                      </span>
-                    </div>
-                  </div>
-                </article>
-              ))}
+                  <option value={12}>12 por página</option>
+                  <option value={24}>24 por página</option>
+                  <option value={48}>48 por página</option>
+                  <option value={96}>96 por página</option>
+                </select>
+              </div>
             </section>
+
+            {/* Barra de Paginación Superior */}
+            <PaginationBar
+              currentPage={safePage}
+              totalPages={totalPages}
+              totalItems={filteredGames.length}
+              shownItems={paginatedGames.length}
+              pageSize={pageSize}
+              onPageChange={handlePageChange}
+              onPageSizeChange={newSize => { setPageSize(newSize); setCurrentPage(1); }}
+            />
+
+            {/* Grid de Cards con Selector de Plataforma Integrado */}
+            <section className="cards-grid">
+              {paginatedGames.map(game => {
+                const selectedPlat = cardPlatformMap[game.id] || (platformFilter !== 'all' ? platformFilter : 'all');
+                const platOffers = selectedPlat === 'all'
+                  ? (game.offers || [])
+                  : (game.offers || []).filter(o => o.platform === selectedPlat);
+
+                const activeBestOffer = platOffers[0] || (game.offers || [])[0];
+                const activePrice = activeBestOffer ? activeBestOffer.currentPriceUsd : game.bestPriceUsd;
+                const activeDiscount = activeBestOffer ? activeBestOffer.discountPct : game.bestDiscountPct;
+                const activeStoreName = activeBestOffer ? activeBestOffer.storeName : '';
+
+                return (
+                  <article
+                    key={game.id}
+                    className="game-card"
+                    style={{ borderTop: `3px solid ${game.dominantColor || '#102973'}` }}
+                    onClick={() => {
+                      setSelectedGame(game);
+                      setModalPlatform(selectedPlat);
+                      setAlertTargetPrice((activePrice * 0.85).toFixed(2));
+                    }}
+                  >
+                    <div className="card-image-wrap">
+                      <img
+                        src={game.coverUrl}
+                        alt={game.title}
+                        loading="lazy"
+                        onError={e => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = createFallbackCoverDataUri(game);
+                        }}
+                      />
+                      <div className="badge-row">
+                        {activeDiscount > 0 ? (
+                          <span className="badge badge-discount mono">-{activeDiscount.toFixed(0)}%</span>
+                        ) : <span />}
+                        {game.isHistoricalLow && (
+                          <span className="badge badge-hist-low mono">★ MÍNIMO HISTÓRICO</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="card-body">
+                      <h2 className="card-title">{game.title}</h2>
+
+                      {/* Botones interactivos de plataforma: si es multiplataforma permite cambiar el precio en vivo */}
+                      <div className="platform-tags">
+                        {game.platforms.length > 1 && (
+                          <button
+                            type="button"
+                            className={`platform-tag ${selectedPlat === 'all' ? 'platform-tag-active' : ''}`}
+                            onClick={e => {
+                              e.stopPropagation();
+                              setCardPlatformMap(prev => ({ ...prev, [game.id]: 'all' }));
+                            }}
+                            title="Ver mejor precio global"
+                          >
+                            Todas
+                          </button>
+                        )}
+                        {(game.platforms || []).map(p => {
+                          const isSelected = selectedPlat === p || (game.platforms.length === 1);
+                          return (
+                            <button
+                              key={p}
+                              type="button"
+                              className={`platform-tag ${isSelected ? 'platform-tag-active' : ''}`}
+                              onClick={e => {
+                                e.stopPropagation();
+                                if (game.platforms.length > 1) {
+                                  setCardPlatformMap(prev => ({ ...prev, [game.id]: p }));
+                                }
+                              }}
+                              title={`Ver precio en ${p}`}
+                            >
+                              {p}
+                            </button>
+                          );
+                        })}
+                        <span className="platform-tag mono" style={{ marginLeft: 'auto', fontWeight: 600 }}>
+                          MC {game.metacriticScore} · OC {game.opencriticScore}
+                        </span>
+                      </div>
+
+                      <div className="card-footer">
+                        <div>
+                          <span className="price-current mono">${activePrice.toFixed(2)}</span>
+                          <span className="price-regular mono">${game.msrpUsd.toFixed(2)}</span>
+                          {activeStoreName && (
+                            <div className="mono" style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '0.1rem' }}>
+                              en {activeStoreName}
+                            </div>
+                          )}
+                        </div>
+                        <span className="mono" style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+                          <Clock size={12} style={{ verticalAlign: 'middle' }} /> {game.hltbMainHours}h
+                        </span>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </section>
+
+            {/* Barra de Paginación Inferior (con selector de páginas y cantidad por página) */}
+            <div style={{ marginTop: '1.75rem' }}>
+              <PaginationBar
+                currentPage={safePage}
+                totalPages={totalPages}
+                totalItems={filteredGames.length}
+                shownItems={paginatedGames.length}
+                pageSize={pageSize}
+                onPageChange={handlePageChange}
+                onPageSizeChange={newSize => { setPageSize(newSize); setCurrentPage(1); }}
+              />
+            </div>
           </>
         ) : activeTab === 'metrics' ? (
-          /* Panel de Métricas y Curvas de Speedup (Secciones 9 y 12) */
           <section>
             <div className="kpi-grid">
               <div className="kpi-card">
@@ -424,7 +560,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Desglose por Etapa y Solicitudes por Sitio */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(410px, 1fr))', gap: '1.25rem', marginBottom: '1.5rem' }}>
               <div className="kpi-card">
                 <h3 style={{ fontSize: '0.95rem', marginBottom: '0.5rem' }}><Cpu size={16} style={{ verticalAlign: 'middle' }} /> Tiempos por Etapa (Segmentación con Channel&lt;T&gt;)</h3>
@@ -501,7 +636,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Gráficos SVG de Curvas de Speedup (Etapa 1 E/S vs Etapa 3 CPU) */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(410px, 1fr))', gap: '1.25rem', marginBottom: '1.5rem' }}>
               <div className="kpi-card">
                 <h3 style={{ fontSize: '0.95rem', marginBottom: '0.5rem' }}>Curva de Speedup Etapa 1 · Descarga E/S (1 a 64 Workers)</h3>
@@ -573,7 +707,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Casos Dudosos de Emparejamiento (Jaro-Winkler) */}
             <div className="kpi-card">
               <h3 style={{ fontSize: '0.95rem', marginBottom: '0.5rem' }}>
                 <AlertTriangle size={16} style={{ verticalAlign: 'middle', color: 'var(--badge-low)' }} /> Juegos con Emparejamiento Dudoso / Ediciones Especiales Detectadas (Umbral Jaro-Winkler: 0.88)
@@ -603,13 +736,12 @@ export default function App() {
             </div>
           </section>
         ) : (
-          /* Pestaña Extra (+3 pts): Lista de Deseos con Alertas por Telegram / Correo */
           <section className="kpi-card">
             <h2 style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
               <Bell size={18} style={{ verticalAlign: 'middle' }} /> Lista de Deseos y Suscripciones de Alerta (Telegram / Correo)
             </h2>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-              Haz clic en cualquier tarjeta del catálogo para configurar una alerta de caída de precio. Cuando la Etapa 4 del pipeline detecta un precio menor o igual a tu meta, dispara la notificación.
+              Haz clic en cualquier tarjeta del catálogo para configurar una alerta de caída de precio.
             </p>
             {wishlist.length === 0 ? (
               <div className="mono" style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
@@ -645,7 +777,7 @@ export default function App() {
         )}
       </main>
 
-      {/* Modal de Detalle del Juego + Gráfico de Historial de Precios por Tienda (Sección 9) */}
+      {/* Modal de Detalle con Selector de Plataforma para Juegos Multiplataforma */}
       {selectedGame && (
         <div className="modal-backdrop" onClick={() => setSelectedGame(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
@@ -659,7 +791,33 @@ export default function App() {
               <button className="btn" onClick={() => setSelectedGame(null)}>Cerrar ✕</button>
             </div>
 
-            {/* Tiempos de How Long To Beat (Obligatorio Sección 5 y 9) */}
+            {/* Selector de Plataforma dentro del Modal */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem', marginBottom: '1.2rem', padding: '0.75rem', background: 'var(--bg-primary)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+              <span style={{ fontSize: '0.82rem', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginRight: '0.4rem' }}>
+                <Gamepad2 size={16} /> Seleccionar plataforma:
+              </span>
+              {selectedGame.platforms.length > 1 && (
+                <button
+                  type="button"
+                  className={`btn ${modalPlatform === 'all' ? 'btn-active' : ''}`}
+                  onClick={() => setModalPlatform('all')}
+                >
+                  Todas ({selectedGame.platforms.length})
+                </button>
+              )}
+              {(selectedGame.platforms || []).map(plat => (
+                <button
+                  key={plat}
+                  type="button"
+                  className={`btn ${(modalPlatform === plat || selectedGame.platforms.length === 1) ? 'btn-active' : ''}`}
+                  onClick={() => setModalPlatform(plat)}
+                >
+                  {plat}
+                </button>
+              ))}
+            </div>
+
+            {/* Tiempos de How Long To Beat */}
             <div className="kpi-grid" style={{ marginBottom: '1.25rem' }}>
               <div className="kpi-card">
                 <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>HLTB · HISTORIA PRINCIPAL</div>
@@ -675,23 +833,26 @@ export default function App() {
               </div>
             </div>
 
-            {/* Tabla de Precios Ordenada de Menor a Mayor */}
-            <h3 style={{ fontSize: '0.95rem', marginBottom: '0.4rem' }}>Comparativa de Precios por Tienda (Menor a Mayor)</h3>
+            {/* Tabla de Precios Ordenada de Menor a Mayor para la Plataforma Seleccionada */}
+            <h3 style={{ fontSize: '0.95rem', marginBottom: '0.4rem' }}>
+              Comparativa de Precios por Tienda ({modalPlatform === 'all' ? 'Todas las plataformas' : modalPlatform})
+            </h3>
             <table className="data-table mono" style={{ marginBottom: '1.4rem' }}>
               <thead>
                 <tr>
+                  <th>Plataforma</th>
                   <th>Tienda</th>
                   <th>Formato</th>
                   <th>Precio Actual</th>
                   <th>Precio Regular</th>
                   <th>Descuento</th>
-                  <th>Fecha Observación</th>
                   <th>Enlace</th>
                 </tr>
               </thead>
               <tbody>
-                {(selectedGame.offers || []).map(offer => (
-                  <tr key={offer.storeCode}>
+                {modalFilteredOffers.map((offer, idx) => (
+                  <tr key={`${offer.storeCode}-${offer.platform}-${idx}`}>
+                    <td><span className="platform-tag platform-tag-active">{offer.platform}</span></td>
                     <td style={{ fontWeight: 600 }}>{offer.storeName}</td>
                     <td>{offer.format === 'physical' ? 'Físico' : 'Digital'}</td>
                     <td style={{ color: 'var(--badge-sale)', fontWeight: 700 }}>${offer.currentPriceUsd.toFixed(2)}</td>
@@ -699,7 +860,6 @@ export default function App() {
                       ${(offer.regularPriceUsd || selectedGame.msrpUsd).toFixed(2)}
                     </td>
                     <td>-{offer.discountPct.toFixed(0)}%</td>
-                    <td>{new Date(offer.observedAt).toLocaleDateString('es-CR')}</td>
                     <td>
                       <a href={offer.productUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--brand-accent)', textDecoration: 'none' }}>
                         Ir a tienda <ExternalLink size={12} />
@@ -710,11 +870,9 @@ export default function App() {
               </tbody>
             </table>
 
-            {/* Gráfico de Historial de Precios por Tienda (Sección 9) */}
             <h3 style={{ fontSize: '0.95rem', marginBottom: '0.5rem' }}>Historial de Precios Registrado por Tienda (USD)</h3>
             <PriceHistoryChart game={selectedGame} />
 
-            {/* Formulario de Alerta de Precio (Extra +3 pts) */}
             <form onSubmit={handleAddAlert} style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)', display: 'flex', flexWrap: 'wrap', gap: '0.6rem', alignItems: 'center' }}>
               <span style={{ fontSize: '0.85rem', fontWeight: 600 }}><Bell size={14} /> Recibir alerta cuando baje de ($):</span>
               <input
@@ -747,15 +905,88 @@ export default function App() {
   );
 }
 
+function PaginationBar({ currentPage, totalPages, totalItems, shownItems, pageSize, onPageChange, onPageSizeChange }) {
+  // Generar botones de números de página cercanos a la página actual
+  const pageNumbers = [];
+  const startPage = Math.max(1, currentPage - 2);
+  const endPage = Math.min(totalPages, currentPage + 2);
+  for (let i = startPage; i <= endPage; i++) {
+    pageNumbers.push(i);
+  }
+
+  return (
+    <div style={{
+      display: 'flex',
+      flexWrap: 'wrap',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      gap: '0.75rem',
+      marginBottom: '1rem',
+      padding: '0.75rem 1rem',
+      background: 'var(--bg-surface)',
+      border: '1px solid var(--border-color)',
+      borderRadius: '10px'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+        <span className="mono" style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+          Mostrando {shownItems} de {totalItems} juegos únicos
+        </span>
+        <select
+          className="input-control mono"
+          style={{ padding: '0.3rem 0.5rem', fontSize: '0.78rem' }}
+          value={pageSize}
+          onChange={e => onPageSizeChange(Number(e.target.value))}
+        >
+          <option value={12}>12 / pág</option>
+          <option value={24}>24 / pág</option>
+          <option value={48}>48 / pág</option>
+          <option value={96}>96 / pág</option>
+        </select>
+      </div>
+
+      <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <button className="btn" disabled={currentPage <= 1} onClick={() => onPageChange(1)}>
+          « Primera
+        </button>
+        <button className="btn" disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)}>
+          <ChevronLeft size={15} /> Anterior
+        </button>
+
+        {pageNumbers.map(num => (
+          <button
+            key={num}
+            className={`btn mono ${num === currentPage ? 'btn-active' : ''}`}
+            onClick={() => onPageChange(num)}
+          >
+            {num}
+          </button>
+        ))}
+
+        <button className="btn" disabled={currentPage >= totalPages} onClick={() => onPageChange(currentPage + 1)}>
+          Siguiente <ChevronRight size={15} />
+        </button>
+        <button className="btn" disabled={currentPage >= totalPages} onClick={() => onPageChange(totalPages)}>
+          Última »
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function PriceHistoryChart({ game }) {
   const msrp = game.msrpUsd || 59.99;
   const labels = ['Hace 4 sem', 'Hace 3 sem', 'Hace 2 sem', 'Semana pasada', 'Actual'];
-  const stores = [
-    { code: 'steam', name: 'Steam', color: '#3B82F6', factor: [1.0, 0.9, 0.82, 0.78, 0.72] },
-    { code: 'xbox', name: 'Xbox Store', color: '#10B981', factor: [1.0, 0.95, 0.85, 0.85, 0.80] },
-    { code: 'eshop', name: 'Nintendo eShop', color: '#EF4444', factor: [1.0, 1.0, 0.92, 0.88, 0.85] },
-    { code: 'gamestop', name: 'GameStop', color: '#F59E0B', factor: [1.0, 0.88, 0.80, 0.75, 0.70] }
+  const allStores = [
+    { code: 'steam', plat: 'PC', name: 'Steam (PC)', color: '#3B82F6', factor: [1.0, 0.9, 0.82, 0.78, 0.72] },
+    { code: 'xbox', plat: 'Xbox', name: 'Xbox Store', color: '#10B981', factor: [1.0, 0.95, 0.85, 0.85, 0.80] },
+    { code: 'eshop', plat: 'Nintendo Switch', name: 'Nintendo eShop', color: '#EF4444', factor: [1.0, 1.0, 0.92, 0.88, 0.85] },
+    { code: 'gamestop', plat: 'PlayStation', name: 'GameStop (Físico)', color: '#F59E0B', factor: [1.0, 0.88, 0.80, 0.75, 0.70] }
   ];
+
+  // Mostrar solo las curvas de tiendas válidas para las plataformas de este juego
+  const validStores = allStores.filter(s =>
+    (game.platforms || []).includes(s.plat) || s.code === 'gamestop'
+  );
 
   const width = 760;
   const height = 190;
@@ -777,7 +1008,7 @@ function PriceHistoryChart({ game }) {
           );
         })}
 
-        {stores.map(store => {
+        {validStores.map(store => {
           const points = store.factor.map((f, i) => {
             const x = padX + (i / (labels.length - 1)) * (width - padX * 2);
             const y = padY + (1 - (f - 0.4) / 0.7) * (height - padY * 2);
@@ -807,7 +1038,7 @@ function PriceHistoryChart({ game }) {
       </svg>
 
       <div className="mono" style={{ display: 'flex', gap: '1rem', justifyContent: 'center', fontSize: '0.75rem', marginTop: '0.4rem' }}>
-        {stores.map(s => (
+        {validStores.map(s => (
           <span key={s.code} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
             <span style={{ width: 10, height: 10, borderRadius: '50%', background: s.color }} /> {s.name}
           </span>

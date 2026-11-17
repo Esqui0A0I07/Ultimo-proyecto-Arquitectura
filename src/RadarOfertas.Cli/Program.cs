@@ -1,4 +1,5 @@
 ﻿using RadarOfertas.Benchmarks;
+using RadarOfertas.Core.Matching;
 using RadarOfertas.Core.Models;
 using RadarOfertas.Data.Repositories;
 using RadarOfertas.Pipeline;
@@ -6,34 +7,30 @@ using RadarOfertas.Scrapers.Discovery;
 using RadarOfertas.Scrapers.Replay;
 using RadarOfertas.Scrapers.Resilience;
 
-if (args.Contains("--contention"))
-{
-    Console.WriteLine("=== EXPERIMENTO DE CONTENCIÓN (2.000.000 actualizaciones, 12 hilos) ===");
-    foreach (var r in ContentionExperiment.RunAll(2_000_000, Environment.ProcessorCount))
-    {
-        Console.WriteLine($"{r.Mechanism,-40} | Tiempo: {r.ElapsedMs,5} ms | Esperado: {r.ExpectedTotal} | Obtenido: {r.ActualTotal}");
-    }
-    return;
-}
+var mode = args.Contains("--parallel") ? ExecutionMode.Parallel
+         : args.Contains("--concurrent") ? ExecutionMode.Concurrent
+         : ExecutionMode.Sequential;
 
-ExecutionMode mode = args.Contains("--parallel") ? ExecutionMode.Parallel
-    : args.Contains("--concurrent") ? ExecutionMode.Concurrent
-    : ExecutionMode.Sequential;
+var mechanism = args.Contains("--plinq") ? CpuMechanism.Plinq : CpuMechanism.ParallelForEach;
+bool isLive = args.Contains("--live");
+bool useDb = args.Contains("--use-db") || args.Contains("--discover") || args.Contains("--init-db");
 
 int ioWorkers = GetIntArg(args, "--io-workers", 32);
 int cpuWorkers = GetIntArg(args, "--cpu-workers", Environment.ProcessorCount);
 int latencyMs = GetIntArg(args, "--latency", 120);
 int gamesCount = GetIntArg(args, "--games", 500);
+
 string connString = GetStringArg(args, "--conn",
     Environment.GetEnvironmentVariable("RADAR_DB_CONN")
-    ?? "Host=ep-shy-lake-bbyw3dvd-pooler.c-15.us-east-1.aws.neon.tech;Database=neondb;Username=neondb_owner;Password=npg_hA9kWgJoBC6N;SSL Mode=Require;");
+    ?? "Host=localhost;Port=5432;Database=radar_ofertas;Username=postgres;Password=postgres");
 
 var config = new PipelineConfig
 {
     Mode = mode,
-    IsReplayMode = !args.Contains("--live"),
+    MatchingMechanism = mechanism,
     IoWorkers = ioWorkers,
     CpuWorkers = cpuWorkers,
+    IsReplayMode = !isLive,
     SimulatedLatencyMs = latencyMs,
     ConnectionString = connString
 };
@@ -43,7 +40,7 @@ HttpMessageHandler handler = config.IsReplayMode
     : new HttpClientHandler();
 
 using var httpClient = new HttpClient(handler);
-httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("RadarOfertasMultinucleo-TEC/1.0 (+https://github.com/equipo/radar-ofertas)");
+httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("RadarOfertasMultinucleo-TEC/1.0 (+https://github.com/Esqui0A0I07/Ultimo-proyecto-Arquitectura)");
 
 var rateLimiter = new DomainRateLimiter();
 var repo = new PostgresGameRepository(config.ConnectionString);
@@ -60,68 +57,49 @@ if (args.Contains("--discover"))
 {
     Console.WriteLine("Ejecutando Etapa 0: Descubrimiento paginado en OpenCritic...");
     await repo.InitializeDatabaseAsync();
-    var discoveryScraper = new OpenCriticDiscoveryScraper(httpClient, rateLimiter, config);
-    var discoveredGames = await discoveryScraper.DiscoverCatalogAsync(Math.Max(500, gamesCount));
-    int hardCasesCount = discoveredGames.Count(g => g.IsHardCase);
-
-    int saved = await repo.UpsertDiscoveredGamesAsync(discoveredGames);
-    Console.WriteLine($"Catálogo poblado en PostgreSQL: {saved} juegos procesados | Casos difíciles incluidos: {hardCasesCount}");
+    var discoveryScraper = new OpenCriticDiscoveryScraper(httpClient, rateLimiter, config.IsReplayMode);
+    var discovered = await discoveryScraper.DiscoverCatalogAsync(gamesCount);
+    int saved = await repo.UpsertDiscoveredGamesAsync(discovered);
+    int hardCases = discovered.Count(g => g.IsHardCase);
+    Console.WriteLine($"Catálogo poblado en PostgreSQL: {saved} juegos procesados | Casos difíciles incluidos: {hardCases}");
     return;
 }
 
-bool useDb = args.Contains("--use-db");
-IReadOnlyList<GameTarget> catalog;
+if (args.Contains("--contention"))
+{
+    Console.WriteLine($"Ejecutando Experimento de Contención en {cpuWorkers} hilos...");
+    var results = ContentionExperiment.RunAll(2_000_000, cpuWorkers);
+    foreach (var r in results)
+    {
+        Console.WriteLine($"{r.Mechanism,-42} | {r.ElapsedMs,6} ms | Esperado: {r.ExpectedTotal:N0} | Real: {r.ActualTotal:N0}");
+    }
+    return;
+}
 
+IReadOnlyList<GameTarget> catalog;
 if (useDb)
 {
     catalog = await repo.GetCatalogAsync(gamesCount);
+    if (catalog.Count == 0)
+    {
+        Console.WriteLine("La base de datos está vacía. Poblando catálogo inicial con Etapa 0...");
+        var discoveryScraper = new OpenCriticDiscoveryScraper(httpClient, rateLimiter, config.IsReplayMode);
+        var discovered = await discoveryScraper.DiscoverCatalogAsync(Math.Max(520, gamesCount));
+        await repo.UpsertDiscoveredGamesAsync(discovered);
+        catalog = await repo.GetCatalogAsync(gamesCount);
+    }
     Console.WriteLine($"Catálogo leído desde PostgreSQL: {catalog.Count} juegos ({catalog.Count(g => g.IsHardCase)} casos difíciles).");
 }
 else
 {
-    catalog = Enumerable.Range(1, gamesCount)
-        .Select(i => new GameTarget(i, $"The Legend of Zelda Breath of the Wild Edition {i}", 59.99m, ["Nintendo Switch", "PC"], i <= 60))
-        .ToList();
+    var discoveryScraper = new OpenCriticDiscoveryScraper(httpClient, rateLimiter, config.IsReplayMode);
+    catalog = (await discoveryScraper.DiscoverCatalogAsync(gamesCount)).Take(gamesCount).ToList();
 }
-
-// Pool de 1.000 candidatos por corrida para que la Etapa 3 (Jaro-Winkler) ejecute 500 x 1.000 = 500.000 comparaciones
-var candidatePool = Enumerable.Range(1, 1000)
-    .Select(i => new StoreCandidate(
-        (i % 4) switch { 0 => "steam", 1 => "xbox", 2 => "eshop", _ => "gamestop" },
-        $"Candidate Title Variant #{i} - Deluxe Remastered Edition",
-        39.99m,
-        59.99m,
-        "digital",
-        "https://store.steampowered.com",
-        null))
-    .ToList();
 
 if (args.Contains("--images"))
 {
     int reps = GetIntArg(args, "--reps", 5);
-    var sweepRows = BenchmarkRunner.RunCoverImageProcessingSweep(catalog, reps, out var coverResults);
-
-    if (useDb && coverResults.Count > 0)
-    {
-        Console.WriteLine("Resolviendo carátulas oficiales de Steam/Nintendo y actualizando PostgreSQL...");
-        var realCoverUrls = await RadarOfertas.Scrapers.Discovery.RealCoverResolver.ResolveCatalogCoversAsync(catalog);
-        await repo.UpdateCoverUrlsBatchAsync(realCoverUrls);
-        await repo.UpdateCoverAnalysisBatchAsync(coverResults);
-        Console.WriteLine($"Actualizados {coverResults.Count} juegos con carátulas reales, colores dominantes y dHash en PostgreSQL.");
-    }
-
-    if (args.Contains("--publish-web"))
-    {
-        string webDataDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../web/public/data"));
-        var exporter = new StaticSiteExporter(config.ConnectionString);
-        await exporter.ExportPublicSiteDataAsync(webDataDir);
-        Console.WriteLine($"[Etapa 5 · Publicar] catalog.json actualizado con carátulas reales en: {webDataDir}");
-    }
-    return;
-}
-{
-    int reps = GetIntArg(args, "--reps", 5);
-    var sweepRows = BenchmarkRunner.RunCoverImageProcessingSweep(catalog, reps, out var coverResults);
+    _ = BenchmarkRunner.RunCoverImageProcessingSweep(catalog, reps, out var coverResults);
 
     if (useDb && coverResults.Count > 0)
     {
@@ -135,7 +113,7 @@ if (args.Contains("--images"))
         string webDataDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../web/public/data"));
         var exporter = new StaticSiteExporter(config.ConnectionString);
         await exporter.ExportPublicSiteDataAsync(webDataDir);
-        Console.WriteLine($"[Etapa 5 · Publicar] catalog.json actualizado con colores dominantes reales en: {webDataDir}");
+        Console.WriteLine($"[Etapa 5 · Publicar] catalog.json actualizado en: {webDataDir}");
     }
     return;
 }
@@ -155,10 +133,21 @@ if (args.Contains("--predict"))
     return;
 }
 
+var replayCandidates = Enumerable.Range(1, 1000)
+    .Select(i => new StoreCandidate(
+        (i % 2 == 0) ? "steam" : "eshop",
+        $"The Legend of Zelda: Breath of the Wild Candidate #{i} (Switch)",
+        39.99m,
+        59.99m,
+        "digital",
+        "https://store.steampowered.com",
+        null))
+    .ToList();
+
 Console.WriteLine($"Iniciando Pipeline | Modo: {config.Mode} | Replay: {config.IsReplayMode} ({config.SimulatedLatencyMs}ms) | W_io: {config.IoWorkers} | W_cpu: {config.CpuWorkers} | BD: {useDb}");
 
 var orchestrator = new PipelineOrchestrator(config, httpClient, rateLimiter, useDb ? repo : null);
-var metrics = await orchestrator.ExecuteAsync(catalog, candidatePool);
+var metrics = await orchestrator.ExecuteAsync(catalog, replayCandidates);
 
 Console.WriteLine($"[Resultado] Total: {metrics.TotalPipelineMs / 1000.0:F2}s | Descarga: {metrics.DownloadStageMs / 1000.0:F2}s | Emparejar: {metrics.MatchStageMs / 1000.0:F2}s | Persistir: {metrics.PersistStageMs / 1000.0:F2}s | Solicitudes: {metrics.TotalRequests}");
 
