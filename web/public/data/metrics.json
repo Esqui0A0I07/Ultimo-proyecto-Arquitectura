@@ -1,6 +1,17 @@
 {
-  "generatedAt": "2026-11-15T22:44:46.0681923+00:00",
+  "generatedAt": "2026-11-17T00:25:08.3342641+00:00",
   "recentRuns": [
+    {
+      "runid": 5,
+      "executionmode": "Parallel",
+      "isreplaymode": true,
+      "ioworkers": 32,
+      "cpuworkers": 12,
+      "simulatedlatencyms": 120,
+      "startedat": "2026-11-16T08:24:13.131754Z",
+      "finishedat": "2026-11-16T08:24:26.689896Z",
+      "totaldurationms": 13561
+    },
     {
       "runid": 4,
       "executionmode": "Parallel",
@@ -47,6 +58,42 @@
     }
   ],
   "stageMetrics": [
+    {
+      "runid": 5,
+      "stagename": "1_Download",
+      "durationms": 13368,
+      "itemsprocessed": 500,
+      "successfulrequests": 3500,
+      "retriedrequests": 0,
+      "failedrequests": 0
+    },
+    {
+      "runid": 5,
+      "stagename": "2_Parse",
+      "durationms": 13373,
+      "itemsprocessed": 500,
+      "successfulrequests": 500,
+      "retriedrequests": 0,
+      "failedrequests": 0
+    },
+    {
+      "runid": 5,
+      "stagename": "3_Match",
+      "durationms": 13374,
+      "itemsprocessed": 500,
+      "successfulrequests": 500,
+      "retriedrequests": 0,
+      "failedrequests": 0
+    },
+    {
+      "runid": 5,
+      "stagename": "4_Persist",
+      "durationms": 13523,
+      "itemsprocessed": 500,
+      "successfulrequests": 500,
+      "retriedrequests": 0,
+      "failedrequests": 0
+    },
     {
       "runid": 4,
       "stagename": "1_Download",
