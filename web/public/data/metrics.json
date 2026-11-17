@@ -1,6 +1,28 @@
 {
-  "generatedAt": "2026-11-17T01:07:07.8082907+00:00",
+  "generatedAt": "2026-11-17T04:06:24.4293142+00:00",
   "recentRuns": [
+    {
+      "runid": 8,
+      "executionmode": "Parallel",
+      "isreplaymode": false,
+      "ioworkers": 12,
+      "cpuworkers": 12,
+      "simulatedlatencyms": 120,
+      "startedat": "2026-11-17T04:05:48.388476Z",
+      "finishedat": "2026-11-17T04:06:26.098872Z",
+      "totaldurationms": 37713
+    },
+    {
+      "runid": 7,
+      "executionmode": "Parallel",
+      "isreplaymode": true,
+      "ioworkers": 32,
+      "cpuworkers": 12,
+      "simulatedlatencyms": 120,
+      "startedat": "2026-11-17T01:07:43.953966Z",
+      "finishedat": "2026-11-17T01:07:57.590274Z",
+      "totaldurationms": 13645
+    },
     {
       "runid": 6,
       "executionmode": "Parallel",
@@ -69,6 +91,78 @@
     }
   ],
   "stageMetrics": [
+    {
+      "runid": 8,
+      "stagename": "1_Download",
+      "durationms": 37344,
+      "itemsprocessed": 520,
+      "successfulrequests": 1340,
+      "retriedrequests": 0,
+      "failedrequests": 0
+    },
+    {
+      "runid": 8,
+      "stagename": "2_Parse",
+      "durationms": 37344,
+      "itemsprocessed": 520,
+      "successfulrequests": 520,
+      "retriedrequests": 0,
+      "failedrequests": 0
+    },
+    {
+      "runid": 8,
+      "stagename": "3_Match",
+      "durationms": 37345,
+      "itemsprocessed": 520,
+      "successfulrequests": 520,
+      "retriedrequests": 0,
+      "failedrequests": 0
+    },
+    {
+      "runid": 8,
+      "stagename": "4_Persist",
+      "durationms": 37629,
+      "itemsprocessed": 520,
+      "successfulrequests": 520,
+      "retriedrequests": 0,
+      "failedrequests": 0
+    },
+    {
+      "runid": 7,
+      "stagename": "1_Download",
+      "durationms": 13316,
+      "itemsprocessed": 500,
+      "successfulrequests": 3500,
+      "retriedrequests": 0,
+      "failedrequests": 0
+    },
+    {
+      "runid": 7,
+      "stagename": "2_Parse",
+      "durationms": 13310,
+      "itemsprocessed": 500,
+      "successfulrequests": 500,
+      "retriedrequests": 0,
+      "failedrequests": 0
+    },
+    {
+      "runid": 7,
+      "stagename": "3_Match",
+      "durationms": 13311,
+      "itemsprocessed": 500,
+      "successfulrequests": 500,
+      "retriedrequests": 0,
+      "failedrequests": 0
+    },
+    {
+      "runid": 7,
+      "stagename": "4_Persist",
+      "durationms": 13587,
+      "itemsprocessed": 500,
+      "successfulrequests": 500,
+      "retriedrequests": 0,
+      "failedrequests": 0
+    },
     {
       "runid": 6,
       "stagename": "1_Download",

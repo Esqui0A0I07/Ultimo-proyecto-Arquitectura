@@ -83,7 +83,28 @@ public sealed class PipelineOrchestrator
         Task stage1 = Task.Run(async () =>
         {
             var sw = Stopwatch.StartNew();
-            if (_config.Mode == ExecutionMode.Sequential || _config.IoWorkers <= 1)
+
+            if (!_config.IsReplayMode)
+            {
+                // MODO LIVE REAL: Consulta directamente las tiendas reales de cada plataforma del juego
+                var parallelOptions = new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = effectiveIoWorkers,
+                    CancellationToken = ct
+                };
+
+                await Parallel.ForEachAsync(catalog, parallelOptions, async (game, token) =>
+                {
+                    var liveCandidates = await LiveStoreScraper.FetchRealCandidatesForGameAsync(_httpClient, game, stageIoGate, token);
+                    Interlocked.Add(ref totalRequests, Math.Max(1, game.Platforms.Length));
+
+                    // Empaquetamos los candidatos reales extraídos para que pasen directo por el canal
+                    string serialized = System.Text.Json.JsonSerializer.Serialize(liveCandidates);
+                    var bundle = new RawGameBundle(game, [new RawSourcePayload("live_stores", serialized, true, 0, null)]);
+                    await downloadToParseChannel.Writer.WriteAsync(bundle, token);
+                });
+            }
+            else if (_config.Mode == ExecutionMode.Sequential || _config.IoWorkers <= 1)
             {
                 foreach (var game in catalog)
                 {
@@ -107,19 +128,36 @@ public sealed class PipelineOrchestrator
                     await downloadToParseChannel.Writer.WriteAsync(bundle, token);
                 });
             }
+
             downloadToParseChannel.Writer.Complete();
             sw.Stop();
             downloadMs = sw.ElapsedMilliseconds;
         }, ct);
 
-        // Etapa 2: Parsear con AngleSharp (HTML DOM)
+        // Etapa 2: Parsear candidatos
         Task stage2 = Task.Run(async () =>
         {
             var sw = Stopwatch.StartNew();
             await foreach (var bundle in downloadToParseChannel.Reader.ReadAllAsync(ct))
             {
-                var parsed = HtmlStoreParser.ParseBundle(bundle, replayCandidatePool);
-                await parseToMatchChannel.Writer.WriteAsync(parsed, ct);
+                if (!_config.IsReplayMode && bundle.Payloads.Count == 1 && bundle.Payloads[0].SourceCode == "live_stores")
+                {
+                    var liveCandidates = System.Text.Json.JsonSerializer.Deserialize<List<StoreCandidate>>(bundle.Payloads[0].RawContent) ?? [];
+                    var parsedLive = new ParsedGameCandidates(
+                        bundle.Game,
+                        liveCandidates,
+                        84,
+                        83,
+                        20.0m,
+                        35.0m,
+                        60.0m);
+                    await parseToMatchChannel.Writer.WriteAsync(parsedLive, ct);
+                }
+                else
+                {
+                    var parsed = HtmlStoreParser.ParseBundle(bundle, replayCandidatePool);
+                    await parseToMatchChannel.Writer.WriteAsync(parsed, ct);
+                }
             }
             parseToMatchChannel.Writer.Complete();
             sw.Stop();

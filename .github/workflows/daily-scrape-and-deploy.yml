@@ -45,7 +45,7 @@ jobs:
           RADAR_DB_CONN: ${{ secrets.RADAR_DB_CONN }}
         run: |
           dotnet build -c Release
-          dotnet run --project RadarOfertas.Cli -c Release -- --parallel --use-db --publish-web --games 500 --io-workers 32 --cpu-workers 12 --latency 120
+          dotnet run --project RadarOfertas.Cli -c Release -- --parallel --live --use-db --publish-web --games 520 --io-workers 12 --cpu-workers 12
 
       - name: 5. Compilar sitio público en React + Vite
         working-directory: ./web

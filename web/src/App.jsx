@@ -35,7 +35,6 @@ const SITE_REQUEST_STATS = [
   { site: 'How Long To Beat', method: 'Web / IGDB Backup', limit: 3, ok: 500, retried: 6, failed: 0 },
 ];
 
-// Genera una carátula SVG de alta resolución con el nombre y plataforma del juego si un CDN externo falla
 function createFallbackCoverDataUri(game) {
   const accent = game.dominantColor || '#102973';
   const safeTitle = (game.title || 'Video Game').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -63,7 +62,6 @@ function createFallbackCoverDataUri(game) {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
-// Infiere la plataforma de una oferta si viene de un JSON anterior
 function getOfferPlatform(offer, gamePlatforms) {
   if (offer.platform) return offer.platform;
   if (offer.storeCode === 'steam') return 'PC';
@@ -79,7 +77,6 @@ export default function App() {
   const [metricsData, setMetricsData] = useState({ generatedAt: null, recentRuns: [], stageMetrics: [] });
   const [loading, setLoading] = useState(true);
 
-  // Filtros, Ordenamiento y Paginación
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [platformFilter, setPlatformFilter] = useState('all');
@@ -89,12 +86,10 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(24);
 
-  // Plataforma seleccionada por tarjeta (para juegos multiplataforma) y en el modal
   const [cardPlatformMap, setCardPlatformMap] = useState({});
   const [selectedGame, setSelectedGame] = useState(null);
   const [modalPlatform, setModalPlatform] = useState('all');
 
-  // Lista de deseos / Alertas
   const [wishlist, setWishlist] = useState(() => {
     const saved = localStorage.getItem('radar_wishlist_alerts');
     return saved ? JSON.parse(saved) : [];
@@ -121,7 +116,6 @@ export default function App() {
 
           const cleanGames = [];
           for (const g of (catJson.games || [])) {
-            // Filtrar cualquier rastro antiguo de "Chapter" o duplicados
             if (!g.title || g.title.includes('Chapter ')) continue;
             const normKey = g.title.trim().toLowerCase();
             if (seenTitles.has(normKey)) continue;
@@ -131,33 +125,12 @@ export default function App() {
             if (normKey.includes('dlc') || normKey.includes('expansion') || normKey.includes('pass')) derivedType = 'dlc';
             else if (normKey.includes('edition') || normKey.includes('collection') || normKey.includes('bundle') || normKey.includes(' + ')) derivedType = 'game_dlc';
 
-            // Garantizar que las ofertas solo pertenezcan a las plataformas válidas del juego
             const validPlats = g.platforms && g.platforms.length > 0 ? g.platforms : ['PC'];
             let offers = (g.offers || [])
               .map(o => ({ ...o, platform: getOfferPlatform(o, validPlats) }))
               .filter(o => validPlats.includes(o.platform));
 
-            // Asegurar que cada plataforma del juego tenga su oferta correspondiente para poder seleccionarla
-            for (const plat of validPlats) {
-              if (!offers.some(o => o.platform === plat)) {
-                const factor = plat === 'PC' ? 0.62 : plat === 'Xbox' ? 0.68 : plat === 'PlayStation' ? 0.70 : 0.75;
-                const price = Number((g.msrpUsd * factor).toFixed(2));
-                const disc = Math.round((1 - price / g.msrpUsd) * 100);
-                offers.push({
-                  platform: plat,
-                  storeCode: plat === 'PC' ? 'steam' : plat === 'Xbox' ? 'xbox' : plat === 'Nintendo Switch' ? 'eshop' : 'gamestop',
-                  storeName: plat === 'PC' ? 'Steam Store' : plat === 'Xbox' ? 'Xbox / Microsoft Store' : plat === 'Nintendo Switch' ? 'Nintendo eShop' : 'GameStop (PlayStation)',
-                  format: plat === 'PlayStation' ? 'physical' : 'digital',
-                  currentPriceUsd: price,
-                  regularPriceUsd: g.msrpUsd,
-                  discountPct: disc,
-                  isOnSale: disc > 0,
-                  isHistoricalLow: false,
-                  productUrl: plat === 'PC' ? 'https://store.steampowered.com' : plat === 'Xbox' ? 'https://www.xbox.com' : plat === 'Nintendo Switch' ? 'https://www.nintendo.com' : 'https://www.gamestop.com',
-                  observedAt: catJson.generatedAt || new Date().toISOString()
-                });
-              }
-            }
+            if (offers.length === 0) continue;
 
             offers.sort((a, b) => a.currentPriceUsd - b.currentPriceUsd);
 
@@ -254,7 +227,6 @@ export default function App() {
 
   return (
     <div>
-      {/* Barra de Navegación Superior */}
       <header className="navbar">
         <div className="navbar-inner">
           <div className="brand-block">
@@ -304,7 +276,6 @@ export default function App() {
           </div>
         ) : activeTab === 'catalog' ? (
           <>
-            {/* Panel de Filtros, Ordenamiento y Cantidad por Página */}
             <section className="filters-panel">
               <div className="filter-group">
                 <label><Search size={12} /> Buscar título</label>
@@ -386,7 +357,6 @@ export default function App() {
               </div>
             </section>
 
-            {/* Barra de Paginación Superior */}
             <PaginationBar
               currentPage={safePage}
               totalPages={totalPages}
@@ -397,7 +367,6 @@ export default function App() {
               onPageSizeChange={newSize => { setPageSize(newSize); setCurrentPage(1); }}
             />
 
-            {/* Grid de Cards con Selector de Plataforma Integrado */}
             <section className="cards-grid">
               {paginatedGames.map(game => {
                 const selectedPlat = cardPlatformMap[game.id] || (platformFilter !== 'all' ? platformFilter : 'all');
@@ -444,7 +413,6 @@ export default function App() {
                     <div className="card-body">
                       <h2 className="card-title">{game.title}</h2>
 
-                      {/* Botones interactivos de plataforma: si es multiplataforma permite cambiar el precio en vivo */}
                       <div className="platform-tags">
                         {game.platforms.length > 1 && (
                           <button
@@ -503,7 +471,6 @@ export default function App() {
               })}
             </section>
 
-            {/* Barra de Paginación Inferior (con selector de páginas y cantidad por página) */}
             <div style={{ marginTop: '1.75rem' }}>
               <PaginationBar
                 currentPage={safePage}
@@ -777,7 +744,6 @@ export default function App() {
         )}
       </main>
 
-      {/* Modal de Detalle con Selector de Plataforma para Juegos Multiplataforma */}
       {selectedGame && (
         <div className="modal-backdrop" onClick={() => setSelectedGame(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
@@ -791,7 +757,6 @@ export default function App() {
               <button className="btn" onClick={() => setSelectedGame(null)}>Cerrar ✕</button>
             </div>
 
-            {/* Selector de Plataforma dentro del Modal */}
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem', marginBottom: '1.2rem', padding: '0.75rem', background: 'var(--bg-primary)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
               <span style={{ fontSize: '0.82rem', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginRight: '0.4rem' }}>
                 <Gamepad2 size={16} /> Seleccionar plataforma:
@@ -817,7 +782,6 @@ export default function App() {
               ))}
             </div>
 
-            {/* Tiempos de How Long To Beat */}
             <div className="kpi-grid" style={{ marginBottom: '1.25rem' }}>
               <div className="kpi-card">
                 <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>HLTB · HISTORIA PRINCIPAL</div>
@@ -833,7 +797,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Tabla de Precios Ordenada de Menor a Mayor para la Plataforma Seleccionada */}
             <h3 style={{ fontSize: '0.95rem', marginBottom: '0.4rem' }}>
               Comparativa de Precios por Tienda ({modalPlatform === 'all' ? 'Todas las plataformas' : modalPlatform})
             </h3>
@@ -906,7 +869,6 @@ export default function App() {
 }
 
 function PaginationBar({ currentPage, totalPages, totalItems, shownItems, pageSize, onPageChange, onPageSizeChange }) {
-  // Generar botones de números de página cercanos a la página actual
   const pageNumbers = [];
   const startPage = Math.max(1, currentPage - 2);
   const endPage = Math.min(totalPages, currentPage + 2);
@@ -983,7 +945,6 @@ function PriceHistoryChart({ game }) {
     { code: 'gamestop', plat: 'PlayStation', name: 'GameStop (Físico)', color: '#F59E0B', factor: [1.0, 0.88, 0.80, 0.75, 0.70] }
   ];
 
-  // Mostrar solo las curvas de tiendas válidas para las plataformas de este juego
   const validStores = allStores.filter(s =>
     (game.platforms || []).includes(s.plat) || s.code === 'gamestop'
   );
