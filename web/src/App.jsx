@@ -69,9 +69,10 @@ export default function App() {
   useEffect(() => {
     async function loadStaticJson() {
       try {
+        const cacheBuster = `?v=${Date.now()}`;
         const [catRes, metRes] = await Promise.all([
-          fetch('./data/catalog.json'),
-          fetch('./data/metrics.json')
+          fetch(`./data/catalog.json${cacheBuster}`),
+          fetch(`./data/metrics.json${cacheBuster}`)
         ]);
         if (catRes.ok) {
           const catJson = await catRes.json();
