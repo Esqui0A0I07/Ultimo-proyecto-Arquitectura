@@ -388,4 +388,30 @@ public sealed class PostgresGameRepository
         await conn.ExecuteAsync(new CommandDefinition(sql.ToString(), parameters, transaction: tx, cancellationToken: ct));
         await tx.CommitAsync(ct);
     }
+    public async Task UpdateCoverUrlsBatchAsync(
+        IReadOnlyDictionary<int, string> coverUrlsByGameId,
+        CancellationToken ct = default)
+    {
+        if (coverUrlsByGameId.Count == 0) return;   
+
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+
+        var sql = new StringBuilder();
+        var parameters = new DynamicParameters();
+        int idx = 0;
+
+        foreach (var kvp in coverUrlsByGameId)
+        {
+            string s = $"_{idx++}";
+            sql.AppendLine($"UPDATE games SET cover_image_url = @url{s} WHERE game_id = @id{s};");
+            parameters.Add($"url{s}", kvp.Value);
+            parameters.Add($"id{s}", kvp.Key);
+        }
+
+        await conn.ExecuteAsync(new CommandDefinition(sql.ToString(), parameters, transaction: tx, cancellationToken: ct));
+        await tx.CommitAsync(ct);
+    }
+
 }

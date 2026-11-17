@@ -519,7 +519,7 @@ public static class BenchmarkRunner
             string status = c.ExpectedTotal == c.ActualTotal ? "Correcto (Sin pérdida)" : $"Condición de Carrera (-{c.ExpectedTotal - c.ActualTotal:N0})";
             sb.AppendLine($"| **{c.Mechanism}** | {c.ElapsedMs} ms | {c.ExpectedTotal:N0} | {c.ActualTotal:N0} | {status} |");
         }
-
+        sb.AppendLine(MatchingValidator.BuildValidationMarkdownSection());
         return sb.ToString();
     }
 

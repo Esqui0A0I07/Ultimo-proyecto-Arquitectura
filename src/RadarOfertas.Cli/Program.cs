@@ -103,6 +103,28 @@ if (args.Contains("--images"))
 
     if (useDb && coverResults.Count > 0)
     {
+        Console.WriteLine("Resolviendo carátulas oficiales de Steam/Nintendo y actualizando PostgreSQL...");
+        var realCoverUrls = await RadarOfertas.Scrapers.Discovery.RealCoverResolver.ResolveCatalogCoversAsync(catalog);
+        await repo.UpdateCoverUrlsBatchAsync(realCoverUrls);
+        await repo.UpdateCoverAnalysisBatchAsync(coverResults);
+        Console.WriteLine($"Actualizados {coverResults.Count} juegos con carátulas reales, colores dominantes y dHash en PostgreSQL.");
+    }
+
+    if (args.Contains("--publish-web"))
+    {
+        string webDataDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../web/public/data"));
+        var exporter = new StaticSiteExporter(config.ConnectionString);
+        await exporter.ExportPublicSiteDataAsync(webDataDir);
+        Console.WriteLine($"[Etapa 5 · Publicar] catalog.json actualizado con carátulas reales en: {webDataDir}");
+    }
+    return;
+}
+{
+    int reps = GetIntArg(args, "--reps", 5);
+    var sweepRows = BenchmarkRunner.RunCoverImageProcessingSweep(catalog, reps, out var coverResults);
+
+    if (useDb && coverResults.Count > 0)
+    {
         Console.WriteLine("Guardando colores dominantes y hashes perceptuales (dHash) en PostgreSQL...");
         await repo.UpdateCoverAnalysisBatchAsync(coverResults);
         Console.WriteLine($"Actualizados {coverResults.Count} juegos en PostgreSQL.");
